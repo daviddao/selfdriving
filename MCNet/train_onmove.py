@@ -281,13 +281,13 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                 maps_lines = (motion_maps[0, :, :, start_frame:start_frame+1, 0:1].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2
                                 maps_road = (motion_maps[0, :, :, start_frame:start_frame+1, 1:2].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2
                                 samples_seq_step = (samples[
-                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
+                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
                                 samples_trans_seq_step = (samples_trans[
-                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
+                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
                                 samples_pre_trans_seq_step = (samples_pre_trans[
-                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
+                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
                                 sbatch = (target_occ[
-                                    0, :, :,start_frame: end_frame, 0:1].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
+                                    0, :, :,start_frame: end_frame, 0:1].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
                                 occ_map_step = occ_map[
                                     0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2)
 
