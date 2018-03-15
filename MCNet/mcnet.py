@@ -40,7 +40,7 @@ class MCNET(object):
     self.diff_in = tf.placeholder(tf.float32, self.diff_shape, name='diff_in')
     self.xt = tf.placeholder(tf.float32, self.xt_shape, name='xt')
     self.target = tf.placeholder(tf.float32, self.target_shape, name='target')
-    
+
     cell = BasicConvLSTMCell([self.image_size[0]/8, self.image_size[1]/8],
                              [3, 3], 256)
     pred = self.forward(self.diff_in, self.xt, cell)
@@ -122,14 +122,14 @@ class MCNET(object):
                       self.image_size[1]/8, 512])
     reuse = False
     # Encoder
-    for t in xrange(self.K-1):
+    for t in range(self.K-1):
       enc_h, res_m = self.motion_enc(diff_in[:,:,:,t,:], reuse=reuse)
       h_dyn, state = cell(enc_h, state, scope='lstm', reuse=reuse)
       reuse = True
 
     pred = []
     # Decoder
-    for t in xrange(self.T):
+    for t in range(self.T):
       if t == 0:
         h_cont, res_c = self.content_enc(xt, reuse=False)
         h_tp1 = self.comb_layers(h_dyn, h_cont, reuse=False)
@@ -227,7 +227,7 @@ class MCNET(object):
   def residual(self, input_dyn, input_cont, reuse=False):
     n_layers = len(input_dyn)
     res_out = []
-    for l in xrange(n_layers):
+    for l in range(n_layers):
       input_ = tf.concat(axis=3,values=[input_dyn[l],input_cont[l]])
       out_dim = input_cont[l].get_shape()[3]
       res1 = relu(conv2d(input_, output_dim=out_dim,

@@ -11,7 +11,7 @@ Dependencies:
 
 Usage:
   (CUDA_VISIBLE_DEVICES=...) python test_onmove.py [--prefix PREFIX] [--image_size IMAGE_SIZE] [--K K] [--T T] [--gpu GPU] [--data_path DATA_PATH]
-  
+
   Args:
     prefix - The prefix for the model which should be tested
     image_size - Size of images which should be used for testing (test images in data_path must have this shape)
@@ -22,7 +22,7 @@ Usage:
 
   Output:
     The predictions of the network are saved to ../results/images/Gridmap/PREFIX/
-    In addition the compressed numpy array of PSNR errors on the test data is saved to ../results/quantitative/Gridmap/PREFIX/results_model=best_model.npz. 
+    In addition the compressed numpy array of PSNR errors on the test data is saved to ../results/quantitative/Gridmap/PREFIX/results_model=best_model.npz.
 """
 import os
 import cv2
@@ -61,7 +61,7 @@ def main(data_path, prefix, image_size, K, T, gpu):
     """
     f = open(data_path + "/test_data_list.txt", "r")
     testfiles = f.readlines()
-    print "Start test with " + str(len(testfiles)) + " testfiles..."
+    print("Start test with " + str(len(testfiles)) + " testfiles...")
     c_dim = 3  # Channel input for network
 
     checkpoint_dir = "../models/" + prefix + "/"
@@ -96,10 +96,10 @@ def main(data_path, prefix, image_size, K, T, gpu):
         psnr_err = np.zeros((0, T))  # Array for saving the PSNR error of all test sequences
         ssim_err = np.zeros((0, T))  # Array for saving the SSIM error of all test sequences
 
-        for i in xrange(len(testfiles)):
-            print testfiles[i]
+        for i in range(len(testfiles)):
+            print(testfiles[i])
 
-            # Run prediction on single test sequence 
+            # Run prediction on single test sequence
             target_seq, input_seq, maps = load_gridmap_onmove(testfiles[i], image_size, K + T)
             target_batch = np.reshape(target_seq, (1, target_seq.shape[0], target_seq.shape[
                                    1], target_seq.shape[2], target_seq.shape[3]))
@@ -119,7 +119,7 @@ def main(data_path, prefix, image_size, K, T, gpu):
             true_data = np.concatenate([true_data]*3, axis=4)
             pred_image = pred_image + (pred_image < 64) * np.concatenate([1-occl_map]*3, axis=4) * 64
             true_data = true_data + (true_data < 64) * np.concatenate([1-occl_map]*3, axis=4) * 64
-            
+
             # Save predictions and PSNR/SSIM error
             savedir = "../results/images/Gridmap/" + prefix + "/" + \
                 testfiles[i].split("/", -1)[-1].split(".", -1)[0]
@@ -132,7 +132,7 @@ def main(data_path, prefix, image_size, K, T, gpu):
             pred_list = [np.squeeze(pred) for pred in pred_list]
             true_list = np.split(target_batch[0, :, :, :K, 0:1], K, axis=2)
             true_list = [np.squeeze(true) for true in true_list]
-            for t in xrange(K + T):
+            for t in range(K + T):
                 pred = (inverse_transform(
                     pred_data[0, :, :, t]) * 255).astype("uint8")
                 target = (inverse_transform(

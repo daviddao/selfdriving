@@ -15,7 +15,7 @@ def load_gridmap_data(f_name, data_path, image_size, K, T):
     """
     Load function for RGB gridmaps.
     Image sequences are loaded from a compressed numpy file ".npz". The array must have a shape of [image_size, image_size, frame_count * 3].
-    The last channel consists of the three RGB channel for every image. This is why the first frame is saved at the position [:,:,0:3], the 
+    The last channel consists of the three RGB channel for every image. This is why the first frame is saved at the position [:,:,0:3], the
     second at [:,:,3:6] and so on. All channels must be normalized between 1 and -1.
 
     Based on the loaded file the frame sequence is loaded in a [image_size, image_size, frame_count, 3] array for further processing. In addition the
@@ -24,18 +24,18 @@ def load_gridmap_data(f_name, data_path, image_size, K, T):
     Args:
         f_name - Name of compressed numpy file which should be loaded
         image_size - Size of images in this file
-        frame_count - Number of images which should be loaded 
+        frame_count - Number of images which should be loaded
 
     Returns:
         seq - sequence of frames in an array of shape [image_size, image_size, frame_count, 3]
-        diff - difference between each next frame. It is calculated by transforming normalized frames back to values between 0 and 1 
+        diff - difference between each next frame. It is calculated by transforming normalized frames back to values between 0 and 1
                 and subtract frame at t-1 from frame at t for diff[:,:,t,:].
     """
     f_name = f_name.split('\n', -1)[0]
     seq = np.load(f_name)['arr_0']
-    
+
     diff = np.zeros((image_size, image_size, K - 1, 3), dtype="float32")
-    for t in xrange(1, K):
+    for t in range(1, K):
         prev = inverse_transform(seq[:, :, t - 1])
         next = inverse_transform(seq[:, :, t])
         diff[:, :, t - 1] = next.astype("float32") - prev.astype("float32")
@@ -45,18 +45,18 @@ def load_gridmap_data(f_name, data_path, image_size, K, T):
 def load_gridmap_with_occlusion_data(f_name, image_size, frame_count):
     """
     Load function for RGB gridmaps with occlusion map.
-    This function is based on 'load_gridmap_data' but extends it by loading an additional occlusion map channel. So the array must have a shape of 
+    This function is based on 'load_gridmap_data' but extends it by loading an additional occlusion map channel. So the array must have a shape of
     [image_size, image_size, frame_count * 4]. The first frame RGB image is saved at the position [:,:,0:3] and its occlusion map at [:,:,3:4] and so on.
     All channels, even the occlusion map, must be normalized between 1 and -1. For the occlusion map 1 means visible and -1 occcluded.
 
     Args:
         f_name - Name of compressed numpy file which should be loaded
         image_size - Size of images in this file
-        frame_count - Number of images which should be loaded 
+        frame_count - Number of images which should be loaded
 
     Returns:
         seq - sequence of frames in an array of shape [image_size, image_size, frame_count, 4]
-        diff - difference between each next frame. It is calculated by transforming normalized frames back to values between 0 and 1 
+        diff - difference between each next frame. It is calculated by transforming normalized frames back to values between 0 and 1
                 and subtract frame at timestep t-1 from frame at timestep t for diff[:,:,t,:]. The occlusion map as fourth channel is not subtracted but
                 taken from frame at timestep t.
     """
@@ -66,7 +66,7 @@ def load_gridmap_with_occlusion_data(f_name, image_size, frame_count):
         seq = seq[:, :, :frame_count * 4]
     seq = np.stack(np.split(seq, frame_count, axis=2), axis=2)
     diff = np.zeros((image_size, image_size, frame_count, 4), dtype="float32")
-    for t in xrange(1, frame_count):
+    for t in range(1, frame_count):
         # Transformation of normalized frames to range of 0 to 1
         prev = inverse_transform(seq[:, :, t - 1, :3])
         next = inverse_transform(seq[:, :, t, :3])
@@ -85,7 +85,7 @@ def load_gridmap_occupancy_data(f_name, image_size, frame_count):
     Args:
         f_name - Name of compressed numpy file which should be loaded
         image_size - Size of images in this file
-        frame_count - Number of images which should be loaded 
+        frame_count - Number of images which should be loaded
 
     Returns:
         seq - sequence of frames in an array of shape [image_size, image_size, frame_count, 2]
@@ -96,7 +96,7 @@ def load_gridmap_occupancy_data(f_name, image_size, frame_count):
     seq = np.stack(np.split(seq, (K + T) * iterations, axis=2), axis=2)
     diff = np.zeros((image_size, image_size, iterations *
                      (K + T), 2), dtype="float32")
-    for t in xrange(1, iterations * (K + T)):
+    for t in range(1, iterations * (K + T)):
         prev = inverse_transform(seq[:, :, t - 1, :1])
         next = inverse_transform(seq[:, :, t, :1])
         diff[:, :, t, :1] = next.astype("float32") - prev.astype("float32")
@@ -112,7 +112,7 @@ def load_gridmap_content_motion_data(f_name, image_size, frame_count):
     Args:
         f_name - Name of compressed numpy file which should be loaded
         image_size - Size of images in this file
-        frame_count - Number of images which should be loaded 
+        frame_count - Number of images which should be loaded
 
     Returns:
         seq - sequence of frames in an array of shape [image_size, image_size, frame_count, 3]
@@ -130,14 +130,14 @@ def load_gridmap_content_motion_data(f_name, image_size, frame_count):
 def load_gridmap_motion_maps(f_name, image_size, frame_count):
     """
     Load function for gridmaps consisting of occupancy, occlusion and motion maps.
-    Works like load_gridmap_with_occlusion_data, but expects instead of a RGB image an one-channel occupancy map for each frame. 
+    Works like load_gridmap_with_occlusion_data, but expects instead of a RGB image an one-channel occupancy map for each frame.
     In addition the first for channels contain the motion maps (0:3 - motion_orientation, 3:4 - motion_intensity). So the array
     must have a shape of [image_size, image_size, frame_count * 2 + 4].
 
     Args:
         f_name - Name of compressed numpy file which should be loaded
         image_size - Size of images in this file
-        frame_count - Number of images which should be loaded 
+        frame_count - Number of images which should be loaded
 
     Returns:
         seq - sequence of frames in an array of shape [image_size, image_size, frame_count, 2]
@@ -161,7 +161,7 @@ def load_gridmap_onmove(f_name, image_size, frame_count, useCombinedMask=False):
     Args:
         f_name - Name of compressed numpy file which should be loaded
         image_size - Size of images in this file
-        frame_count - Number of images which should be loaded 
+        frame_count - Number of images which should be loaded
         useCombinedMask - determines whether the combined mask of road and occlusion map or only occlusion should be used
 
     Returns:
@@ -175,7 +175,7 @@ def load_gridmap_onmove(f_name, image_size, frame_count, useCombinedMask=False):
     seq = np.stack(np.split(seq[:,:,:frame_count*5], frame_count, axis=2), axis=2)
     if image_size < seq.shape[0]:
         orig_size = seq.shape[0]
-        start_index = (orig_size - image_size) / 2
+        start_index = (orig_size - image_size) // 2
         end_index = start_index + image_size
         seq = seq[start_index:end_index,start_index:end_index]
 
@@ -183,11 +183,11 @@ def load_gridmap_onmove(f_name, image_size, frame_count, useCombinedMask=False):
     maps = seq[:,:,:,2:4]
     if useCombinedMask:
         loss_mask = seq[:,:,1:,4:5]
-        input_seq[:,:,:,0:1] = np.multiply((seq[:,:,:-1,4:5] + 1) / 2, (input_seq[:,:,:,0:1] + 1) / 2) * 2 - 1
+        input_seq[:,:,:,0:1] = np.multiply((seq[:,:,:-1,4:5] + 1) // 2, (input_seq[:,:,:,0:1] + 1) // 2) * 2 - 1
     else:
         loss_mask = seq[:,:,1:,1:2]
-        input_seq[:,:,:,0:1] = np.multiply((seq[:,:,:-1,4:5] + 1) / 2, (input_seq[:,:,:,0:1] + 1) / 2) * 2 - 1
-        seq[:,:,1:,0:1] = np.multiply((seq[:,:,1:,0:1] + 1) / 2, (seq[:,:,1:,3:4] + 1) / 2) * 2 - 1
+        input_seq[:,:,:,0:1] = np.multiply((seq[:,:,:-1,4:5] + 1) // 2, (input_seq[:,:,:,0:1] + 1) // 2) * 2 - 1
+        seq[:,:,1:,0:1] = np.multiply((seq[:,:,1:,0:1] + 1) // 2, (seq[:,:,1:,3:4] + 1) / 2) * 2 - 1
     target_seq = np.concatenate([seq[:,:,1:,0:1],loss_mask], axis=3)
 
     tf_name = f_name.split('.',-1)[0] + "_transformation.npz"
@@ -197,7 +197,7 @@ def load_gridmap_onmove(f_name, image_size, frame_count, useCombinedMask=False):
         tf_matrix[:,:,2] = tf_matrix[:,:,2]
         tf_matrix[:,:,5] = - tf_matrix[:,:,5]
     except IOError:
-        print "IOError for " + tf_name
+        print("IOError for " + tf_name)
         tf_matrix = np.zeros([frame_count-1, 3, 8], dtype=np.float32)
         tf_matrix[:,:,0] = 1
         tf_matrix[:,:,4] = 1

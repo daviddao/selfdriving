@@ -43,7 +43,7 @@ class MCNET(object):
     self.xt = tf.placeholder(tf.float32, self.xt_shape, name='xt')
     self.target = tf.placeholder(tf.float32, self.target_shape, name='target')
     self.pred_occlusion_map = tf.zeros(self.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map')
-    
+
     cell = BasicConvLSTMCell([self.image_size[0]/8, self.image_size[1]/8],
                              [3, 3], 256)
     pred = self.forward(self.diff_in, self.xt, cell)
@@ -55,7 +55,7 @@ class MCNET(object):
       self.occlusion_map = tf.tile(self.occlusion_map, [1,1,1,1,3])
       self.target_masked = tf.multiply(self.target_content, self.occlusion_map)
       self.G_masked = tf.multiply(self.G, self.occlusion_map)
-      
+
 
       true_sim = inverse_transform(self.target_masked[:,:,:,:,:])  # was: [:,:,:,self.K:,:]
       if self.c_dim == 1: true_sim = tf.tile(true_sim,[1,1,1,1,3])
@@ -94,7 +94,7 @@ class MCNET(object):
       self.L_img = self.L_p + self.L_gdl
 
 
-      
+
       self.d_loss_real = tf.reduce_mean(
           tf.nn.sigmoid_cross_entropy_with_logits(
               logits=self.D_logits, labels=tf.ones_like(self.D)
@@ -111,7 +111,7 @@ class MCNET(object):
               logits=self.D_logits_, labels=tf.ones_like(self.D_)
           )
       )
-      
+
 
 
       self.loss_sum = tf.summary.scalar("L_img", self.L_img)
@@ -137,14 +137,14 @@ class MCNET(object):
                       self.image_size[1]/8, 512])
     reuse = False
     pred = []
-    for iter_index in xrange(self.iterations):
+    for iter_index in range(self.iterations):
       # TODO: Calculate the difference at the turning point of generated and ground truth in here and take it as input for next prediction step
       # Encoder
       diff_steps = self.K
       start_step = 0
       if iter_index == 0:
         start_step = 1
-      for t in xrange(start_step, self.K):
+      for t in range(start_step, self.K):
         #print diff_in.shape
         #print str(t+(self.K+self.T)*iter_index)
         enc_h, res_m = self.motion_enc(diff_in[:,:,:,t+(self.K+self.T)*iter_index,:], reuse=reuse)
@@ -154,7 +154,7 @@ class MCNET(object):
       xt_input = xt[:,:,:,iter_index,:]
 
       # Decoder
-      for t in xrange(self.T):
+      for t in range(self.T):
         if t == 0:
           h_cont, res_c = self.content_enc(xt_input, reuse=(iter_index > 0))
           h_tp1 = self.comb_layers(h_dyn, h_cont, reuse=(iter_index > 0))
@@ -259,7 +259,7 @@ class MCNET(object):
   def residual(self, input_dyn, input_cont, reuse=False):
     n_layers = len(input_dyn)
     res_out = []
-    for l in xrange(n_layers):
+    for l in range(n_layers):
       input_ = tf.concat(axis=3,values=[input_dyn[l],input_cont[l]])
       out_dim = input_cont[l].get_shape()[3]
       res1 = relu(conv2d(input_, output_dim=out_dim,
@@ -346,7 +346,7 @@ class MCNET(object):
 
   def extract_loss_target(self, target):
     target_list = []
-    for iter_index in xrange(0,self.iterations):
+    for iter_index in range(0,self.iterations):
       target_step = target[:,:,:,(self.K+self.T)*iter_index + self.K:(self.K+self.T)*(iter_index+1),:]
       target_list.append(target_step)
     target_tensor = tf.concat(target_list, axis=3)
@@ -357,4 +357,3 @@ class MCNET(object):
     noise_tensor = tf.greater(tf.random_normal(occlusion_map.shape), tf.fill(occlusion_map.shape, NOISY_THRESH))
     noisy_occlusion_map = tf.cast(tf.logical_or(noise_tensor, tf.cast(occlusion_map,tf.bool)), tf.float32)
     return noisy_occlusion_map
-

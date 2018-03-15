@@ -110,7 +110,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                               sequence_steps * (K + T), 2), dtype="float32")
                         map_batch = np.zeros((batch_size, image_size, image_size,
                                                sequence_steps * (K + T) + showFutureMaps, 2), dtype="float32")
-                        transformation_batch = np.zeros((batch_size, 
+                        transformation_batch = np.zeros((batch_size,
                                                sequence_steps * (K + T), 3, 8), dtype="float32")
                         t0 = time.time()
                         seq_steps = np.repeat(
@@ -123,7 +123,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                           for f, img_sze, seq in zip(tfiles,
                                                                      shapes,
                                                                      seq_steps))
-                        for i in xrange(batch_size):
+                        for i in range(batch_size):
                             seq_batch[i] = output[i][0]
                             input_batch[i] = output[i][1]
                             map_batch[i] = output[i][2] if showFutureMaps else output[i][2][:,:,:-1,:]
@@ -203,12 +203,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                                                                model.target: seq_batch,
                                                                                model.ego_motion: transformation_batch})
 
-                            for seq_step in xrange(sequence_steps * 2):
+                            for seq_step in range(sequence_steps * 2):
                                 start_frame = seq_step / 2 * (K + T)
-                                end_frame = start_frame + K 
+                                end_frame = start_frame + K
                                 if seq_step % 2 == 1:
                                   start_frame += K
-                                  end_frame += T 
+                                  end_frame += T
                                 frame_count = end_frame - start_frame
 
                                 maps_lines = motion_maps[0, :, :, start_frame:start_frame+1, 0:1].swapaxes(0, 2).swapaxes(1, 2)

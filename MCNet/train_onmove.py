@@ -18,7 +18,7 @@ from os.path import exists
 from argparse import ArgumentParser
 from joblib import Parallel, delayed
 import time
-import thread
+import _thread
 
 next_seq_batch = None
 next_input_batch = None
@@ -30,14 +30,14 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
          T, num_iter, gpu, sequence_steps, d_input_frames, useSELU=True,
          useCombinedMask=False, predOcclValue=1, img_save_freq=200):
     # "/lhome/phlippe/dataset/TwoHourSequence_crop/Train/compressed64x64/"
-    data_path = '/lhome/phlippe/dataset/'
+    data_path = '/mnt/ds3lab/daod/mercedes_benz/phlippe/dataset/BigLoop/'
     if sequence_steps * (K + T) <= 60:
       train_list = data_path + "train_onmove_96x96.txt"
     else:
       train_list = data_path + "train_onmove_long_96x96.txt"
     f = open(train_list, "r")
     trainfiles = f.readlines()
-    print str(len(trainfiles)) + " train files"
+    print(str(len(trainfiles)) + " train files")
     margin = 0.3
     updateD = True
     updateG = True
@@ -71,7 +71,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
     if not exists(summary_dir):
         makedirs(summary_dir)
 
-    print "Setup model..."
+    print("Setup model...")
     model = MCNET(image_size=[image_size, image_size], c_dim=1,
                   K=K, batch_size=batch_size, T=T,
                   checkpoint_dir=checkpoint_dir,
@@ -81,8 +81,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                   showFutureMaps=True,
                   predOcclValue=predOcclValue,
                   gpu=gpu, useGAN=(beta != 0))
-    
-    print "Setup optimizer..."
+
+    print("Setup optimizer...")
     with tf.device("/gpu:%d" % gpu[0]):
         if beta != 0:
           d_optim = tf.train.AdamOptimizer(lr_D, beta1=0.5).minimize(
@@ -94,7 +94,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
             alpha * model.L_img + beta * model.L_GAN, var_list=model.g_vars
         )
 
-    print "Setup session..."
+    print("Setup session...")
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.0, allow_growth=True)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                           log_device_placement=False,
@@ -102,7 +102,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
 
         tf.global_variables_initializer().run()
 
-        print "Load model..."
+        print("Load model...")
         if model.load(sess, checkpoint_dir):
             print(" [*] Load SUCCESS")
         else:
@@ -117,7 +117,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
 
         counter = iters + 1
         start_time = time.time()
-        
+
 
 
         with Parallel(n_jobs=batch_size) as parallel:
@@ -133,7 +133,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                       sequence_steps * (K + T), 2), dtype="float32")
                 map_batch = np.zeros((batch_size, image_size, image_size,
                                        sequence_steps * (K + T) + 1, 2), dtype="float32")
-                transformation_batch = np.zeros((batch_size, 
+                transformation_batch = np.zeros((batch_size,
                                        sequence_steps * (K + T), 3, 8), dtype="float32")
                 t0 = time.time()
                 seq_steps = np.repeat(
@@ -147,12 +147,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                                              shapes,
                                                              seq_steps,
                                                              combLoss))
-                for i in xrange(batch_size):
+                for i in range(batch_size):
                     seq_batch[i] = output[i][0]
                     input_batch[i] = output[i][1]
                     map_batch[i] = output[i][2]
                     transformation_batch[i] = output[i][3]
-                
+
                 next_seq_batch = seq_batch
                 next_input_batch = input_batch
                 next_map_batch = map_batch
@@ -169,7 +169,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                 last_time = time.time()
                 while not first_batch and (next_seq_batch is None or next_input_batch is None or next_map_batch is None or next_transformation_batch is None):
                     if (time.time() - last_time) > 0.1:
-                        print "Waiting on next_grid/next_sequence_gt/next_sequence_grid, time=" + str(time.time() - wait_start_time)
+                        print("Waiting on next_grid/next_sequence_gt/next_sequence_grid, time=" + str(time.time() - wait_start_time))
                         last_time = time.time()
                 seq_batch = (next_seq_batch)
                 input_batch = (next_input_batch)
@@ -182,7 +182,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                 next_transformation_batch = None
                 first_batch = False
 
-                thread.start_new_thread(load_next_batch, (batchidx,))
+                _thread.start_new_thread(load_next_batch, (batchidx,))
                 return (seq_batch, input_batch, map_batch, transformation_batch)
 
             while iters < num_iter:
@@ -192,9 +192,9 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                     if len(batchidx) == batch_size:
                         load_start = time.time()
                         if first_batch:
-                          fetch_next_batch(batchidx)
+                            fetch_next_batch(batchidx)
                         seq_batch, input_batch, map_batch, transformation_batch = fetch_next_batch(batchidx)
-                        print "Loading done in "+str(time.time() - load_start)+"sec."
+                        print("Loading done in "+str(time.time() - load_start)+"sec.")
 
                         if beta != 0 and updateD:
                             _, summary_str = sess.run([d_optim, d_sum],
@@ -263,31 +263,31 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                         )
 
                         if np.mod(counter, img_save_freq) == 1:
-                            print np.reshape(transformation_batch[:,:,0,:6], [transformation_batch.shape[0], transformation_batch.shape[1], 2, 3])
+                            print(np.reshape(transformation_batch[:,:,0,:6], [transformation_batch.shape[0], transformation_batch.shape[1], 2, 3]))
                             samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask],
                                                                     feed_dict={model.input_tensor: input_batch,
                                                                                model.motion_map_tensor: map_batch,
                                                                                model.target: seq_batch,
                                                                                model.ego_motion: transformation_batch})
 
-                            for seq_step in xrange(sequence_steps * 2):
-                                start_frame = seq_step / 2 * (K + T)
-                                end_frame = start_frame + K 
+                            for seq_step in range(sequence_steps * 2):
+                                start_frame = seq_step // 2 * (K + T)
+                                end_frame = start_frame + K
                                 if seq_step % 2 == 1:
                                   start_frame += K
-                                  end_frame += T 
+                                  end_frame += T
                                 frame_count = end_frame - start_frame
 
-                                maps_lines = (motion_maps[0, :, :, start_frame:start_frame+1, 0:1].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2
-                                maps_road = (motion_maps[0, :, :, start_frame:start_frame+1, 1:2].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2
+                                maps_lines = (motion_maps[0, :, :, start_frame:start_frame+1, 0:1].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2
+                                maps_road = (motion_maps[0, :, :, start_frame:start_frame+1, 1:2].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2
                                 samples_seq_step = (samples[
-                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
+                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
                                 samples_trans_seq_step = (samples_trans[
-                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
+                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
                                 samples_pre_trans_seq_step = (samples_pre_trans[
-                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
+                                    0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
                                 sbatch = (target_occ[
-                                    0, :, :,start_frame: end_frame, 0:1].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
+                                    0, :, :,start_frame: end_frame, 0:1].swapaxes(0, 2).swapaxes(1, 2) + 1) // 2.0
                                 occ_map_step = occ_map[
                                     0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2)
 
@@ -310,9 +310,9 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                 save_images(samples_seq_step[:, :, :, :], [4, frame_count + 1],
                                             samples_dir + "train_" + str(iters).zfill(7) + "_" + str(seq_step) + ".png")
                         if np.mod(counter, 500) == 2:
-                            print "#"*50
-                            print "Save model..."
-                            print "#"*50
+                            print("#"*50)
+                            print("Save model...")
+                            print("#"*50)
                             model.save(sess, checkpoint_dir, counter)
 
 
@@ -326,6 +326,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 if __name__ == "__main__":
+
     parser = ArgumentParser()
     parser.add_argument("--lr_D", type=float, dest="lr_D",
                         default=0.0001, help="Base Learning Rate for Discriminator")
@@ -359,6 +360,7 @@ if __name__ == "__main__":
                         default=1, help="If SELU should be used instead of RELU")
     parser.add_argument("--imgFreq", type=int, dest="img_save_freq",
                         default=200, help="If SELU should be used instead of RELU")
+
 
     args = parser.parse_args()
     main(**vars(args))

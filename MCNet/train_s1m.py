@@ -97,7 +97,7 @@ def main(lr, batch_size, alpha, beta, K, T, num_iter, gpu):
                                                  for f, p, k, t in zip(tfiles,
                                                                        paths,
                                                                        Ks, Ts))
-            for i in xrange(batch_size):
+            for i in range(batch_size):
               seq_batch[i]  = output[i][0]
               diff_batch[i] = output[i][1]
 
@@ -107,7 +107,7 @@ def main(lr, batch_size, alpha, beta, K, T, num_iter, gpu):
                                              model.xt: seq_batch[:,:,:,K-1],
                                              model.target: seq_batch})
               writer.add_summary(summary_str, counter)
-  
+
             if updateG:
               _, summary_str = sess.run([g_optim, g_sum],
                                   feed_dict={model.diff_in: diff_batch,
@@ -124,7 +124,7 @@ def main(lr, batch_size, alpha, beta, K, T, num_iter, gpu):
             errG = model.L_GAN.eval({model.diff_in: diff_batch,
                                      model.xt: seq_batch[:,:,:,K-1],
                                      model.target: seq_batch})
- 
+
             if errD_fake < margin or errD_real < margin:
               updateD = False
             if errD_fake > (1.-margin) or errD_real > (1.-margin):
@@ -132,14 +132,14 @@ def main(lr, batch_size, alpha, beta, K, T, num_iter, gpu):
             if not updateD and not updateG:
               updateD = True
               updateG = True
-  
+
             counter += 1
-  
+
             print(
                 "Iters: [%2d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f"
                 % (iters, time.time() - start_time, errD_fake+errD_real,errG)
             )
- 
+
             if np.mod(counter, 100) == 1:
               samples = sess.run([model.G],
                                   feed_dict={model.diff_in: diff_batch,
@@ -148,11 +148,11 @@ def main(lr, batch_size, alpha, beta, K, T, num_iter, gpu):
               samples = np.concatenate((samples[:,:,:,0,:],
                                         seq_batch[:,:,:,K,:]), axis=0)
               print("Saving sample ...")
-              save_images(samples[:,:,:,::-1], [batch_size, batch_size], 
+              save_images(samples[:,:,:,::-1], [batch_size, batch_size],
                           samples_dir+"train_%s.png" % (iters))
             if np.mod(counter, 500) == 2:
               model.save(sess, checkpoint_dir, counter)
-  
+
             iters += 1
 
 if __name__ == "__main__":

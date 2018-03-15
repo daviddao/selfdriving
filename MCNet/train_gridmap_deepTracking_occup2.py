@@ -114,7 +114,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                           for f, img_sze, seq in zip(tfiles,
                                                                      shapes,
                                                                      seq_steps))
-                        for i in xrange(batch_size):
+                        for i in range(batch_size):
                             seq_batch[i] = output[i][0][:,:,1:,:]
                             content_batch[i] = output[i][1][:,:,:-1,:]
                             motion_batch[i] = output[i][2][:,:,:-1,:]
@@ -184,12 +184,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                                                                                model.content_in: content_batch,
                                                                                model.target: seq_batch})
 
-                            for seq_step in xrange(sequence_steps * 2):
+                            for seq_step in range(sequence_steps * 2):
                                 start_frame = seq_step / 2 * (K + T)
-                                end_frame = start_frame + K 
+                                end_frame = start_frame + K
                                 if seq_step % 2 == 1:
                                   start_frame += K
-                                  end_frame += T 
+                                  end_frame += T
                                 orig_samples_seq = orig_samples[
                                     0, :, :,start_frame: end_frame].swapaxes(0, 2).swapaxes(1, 2)
                                 samples_seq_step = samples[

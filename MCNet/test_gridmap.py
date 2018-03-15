@@ -11,7 +11,7 @@ Dependencies:
 
 Usage:
   (CUDA_VISIBLE_DEVICES=...) python test_gridmap.py [--prefix PREFIX] [--image_size IMAGE_SIZE] [--K K] [--T T] [--gpu GPU] [--data_path DATA_PATH]
-  
+
   Args:
     prefix - The prefix for the model which should be tested
     image_size - Size of images which should be used for testing (test images in data_path must have this shape)
@@ -22,7 +22,7 @@ Usage:
 
   Output:
     The predictions of the network are saved to ../results/images/Gridmap/PREFIX/
-    In addition the compressed numpy array of PSNR errors on the test data is saved to ../results/quantitative/Gridmap/PREFIX/results_model=best_model.npz. 
+    In addition the compressed numpy array of PSNR errors on the test data is saved to ../results/quantitative/Gridmap/PREFIX/results_model=best_model.npz.
 """
 import os
 import cv2
@@ -95,10 +95,10 @@ def main(data_path, prefix, image_size, K, T, gpu):
         psnr_err = np.zeros((0, T))  # Array for saving the PSNR error of all test sequences
         ssim_err = np.zeros((0, T))  # Array for saving the SSIM error of all test sequences
 
-        for i in xrange(len(testfiles)):
+        for i in range(len(testfiles)):
             print testfiles[i]
 
-            # Run prediction on single test sequence 
+            # Run prediction on single test sequence
             seq, diff = load_gridmap_data(testfiles[i], None, image_size, K, T)
             seq_batch = np.reshape(seq, (1, seq.shape[0], seq.shape[
                                    1], seq.shape[2], seq.shape[3]))
@@ -128,7 +128,7 @@ def main(data_path, prefix, image_size, K, T, gpu):
             pred_list = [np.squeeze(pred) for pred in pred_list]
             true_list = np.split(seq_batch[0, :, :, :K], K, axis=2)
             true_list = [np.squeeze(true) for true in true_list]
-            for t in xrange(K + T):
+            for t in range(K + T):
                 pred = (inverse_transform(
                     pred_data[0, :, :, t]) * 255).astype("uint8")
                 target = (inverse_transform(

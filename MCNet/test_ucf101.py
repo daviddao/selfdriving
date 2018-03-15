@@ -62,7 +62,7 @@ def main(lr, prefix, K, T, gpu):
     vid_names = []
     psnr_err = np.zeros((0, T))
     ssim_err = np.zeros((0, T))
-    for i in xrange(0,len(testfiles),10):
+    for i in range(0,len(testfiles),10):
       print(" Video "+str(i)+"/"+str(len(testfiles)))
 
       tokens = testfiles[i].split("/")[1].split()
@@ -81,11 +81,11 @@ def main(lr, prefix, K, T, gpu):
                             dtype="float32")
       diff_batch = np.zeros((1, image_size[0], image_size[1], K-1, 1),
                             dtype="float32")
-      for t in xrange(K+T):
+      for t in range(K+T):
         img = vid.get_data(t)[:,:,::-1]
         seq_batch[0,:,:,t] = transform(img)
 
-      for t in xrange(1,K):
+      for t in range(1,K):
         prev = inverse_transform(seq_batch[0,:,:,t-1])*255
         prev = cv2.cvtColor(prev.astype("uint8"),cv2.COLOR_BGR2GRAY)
         next = inverse_transform(seq_batch[0,:,:,t])*255
@@ -107,7 +107,7 @@ def main(lr, prefix, K, T, gpu):
       cssim = np.zeros((K+T,))
       pred_data = np.concatenate((seq_batch[:,:,:,:K],pred_data),axis=3)
       true_data = np.concatenate((seq_batch[:,:,:,:K],true_data),axis=3)
-      for t in xrange(K+T):
+      for t in range(K+T):
         pred     = (inverse_transform(pred_data[0,:,:,t])*255).astype("uint8")
         target   = (inverse_transform(true_data[0,:,:,t])*255).astype("uint8")
 

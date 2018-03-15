@@ -19,7 +19,7 @@ class MCNET(object):
     def __init__(self, image_size, batch_size=32, c_dim=1,  # Input has to be 2 dimensional: First occupancy, last occlusion map
                  K=10, T=10, checkpoint_dir=None, is_train=True,
                  iterations=1, d_input_frames=20, useSELU=False,
-                 motion_map_dims=2, showFutureMaps=True, 
+                 motion_map_dims=2, showFutureMaps=True,
                  predOcclValue=-1, useSmallSharpener=False):
 
         self.batch_size = batch_size
@@ -223,10 +223,10 @@ class MCNET(object):
         pred = []
         trans_pred = []
         pre_trans_pred = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             print "Iteration " + str(iter_index)
             # Ground Truth as Input
-            for t in xrange(self.K):
+            for t in range(self.K):
                 timestep = iter_index * (self.K + self.T) + t
                 motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :], motion_maps[:,:,:,timestep,:]], axis=3)
                 transform_matrix = ego_motions[:,timestep]
@@ -234,7 +234,7 @@ class MCNET(object):
                 decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
                 pre_trans_pred.append(tf.identity(decoded_output))
                 prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
-                prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1 
+                prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
                 trans_pred.append(tf.identity(prediction_output))
                 # prediction_output = self.sharpen_image(prediction_output, motion_maps[:,:,:,timestep+1,:], motion_enc_input[:,:,:,:2], reuse=reuse)
                 self.transform_hidden_states(transform_matrix)
@@ -242,7 +242,7 @@ class MCNET(object):
                 reuse = True
 
             # Prediction sequence
-            for t in xrange(self.T):
+            for t in range(self.T):
                 timestep = iter_index * (self.K + self.T) + self.K + t
                 motion_enc_input = tf.concat(
                     [pred[-1], self.pred_occlusion_map, motion_maps[:,:,:,timestep,:]], axis=3)
@@ -275,7 +275,7 @@ class MCNET(object):
 
         conv2_1 = relu(conv2d(h_cell_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
                               d_h=2, d_w=2, name='mot_conv2_1', reuse=reuse), useSELU=self.useSELU)
-        
+
         res_in.append(conv2_1)
 
         motion_cell_2 = BasicConvLSTMCell([self.image_size[0] / 4, self.image_size[1] / 4],
@@ -327,7 +327,7 @@ class MCNET(object):
         shapeout1 = [self.batch_size, self.image_size[0],
                      self.image_size[1], self.c_dim]
 
-        deconv1_concat = tf.concat(axis=3, values=[h_cell_1, res_connect[0]])                     
+        deconv1_concat = tf.concat(axis=3, values=[h_cell_1, res_connect[0]])
         deconv1_2 = relu(deconv2d(deconv1_concat,
                                              output_shape=shapel1, k_h=3, k_w=3, d_h=2, d_w=2,
                                              name='dec_deconv1_2', reuse=reuse), useSELU=self.useSELU)
@@ -404,7 +404,7 @@ class MCNET(object):
 
     def add_input_to_generated_data(self, generated_data, input_data):
         combined_data = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             start_frame_input = iter_index * (self.K + self.T)
             end_frame_input = iter_index * (self.K + self.T) + self.K
             combined_data.append(

@@ -18,7 +18,7 @@ class MCNET(object):
     def __init__(self, image_size, batch_size=32, c_dim=1,  # Input has to be 2 dimensional: First occupancy, last occlusion map
                  K=10, T=10, checkpoint_dir=None, is_train=True,
                  iterations=1, d_input_frames=20, useSELU=False,
-                 motion_map_dims=4, showFutureMaps=False, 
+                 motion_map_dims=4, showFutureMaps=False,
                  predOcclValue=1):
 
         self.batch_size = batch_size
@@ -214,10 +214,10 @@ class MCNET(object):
 
         reuse = False
         pred = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             print "Iteration " + str(iter_index)
             # Ground Truth as Input
-            for t in xrange(self.K):
+            for t in range(self.K):
                 timestep = iter_index * (self.K + self.T) + t
                 motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :], motion_maps[:,:,:,timestep,:]], axis=3)
                 h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
@@ -227,7 +227,7 @@ class MCNET(object):
                 reuse = True
 
             # Prediction sequence
-            for t in xrange(self.T):
+            for t in range(self.T):
                 timestep = iter_index * (self.K + self.T) + self.K + t
                 motion_enc_input = tf.concat(
                     [pred[-1], self.pred_occlusion_map, motion_maps[:,:,:,timestep,:]], axis=3)
@@ -261,7 +261,7 @@ class MCNET(object):
                                                  dilation_rate=2, name='mot_dil_conv2_2', reuse=reuse), useSELU=self.useSELU)
         conv2_3 = relu(dilated_conv2d(conv2_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
                                                  dilation_rate=4, name='mot_dil_conv2_3', reuse=reuse), useSELU=self.useSELU)
-        
+
         res_in.append(conv2_3)
         pool2 = MaxPooling(conv2_3, [2, 2])
 
@@ -292,7 +292,7 @@ class MCNET(object):
 
         conv4_1 = relu(dilated_conv2d(h_cell_3, output_dim=self.gf_dim * 4, k_h=3, k_w=3,
                                                  dilation_rate=1, name='mot_dil_conv4_1', reuse=reuse), useSELU=self.useSELU)
-        
+
 
         return conv4_1, res_in
 
@@ -385,7 +385,7 @@ class MCNET(object):
 
     def add_input_to_generated_data(self, generated_data, input_data):
         combined_data = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             start_frame_input = iter_index * (self.K + self.T)
             end_frame_input = iter_index * (self.K + self.T) + self.K
             combined_data.append(

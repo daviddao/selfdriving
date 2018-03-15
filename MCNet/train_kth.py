@@ -21,7 +21,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
   data_path = "../data/KTH/"
   f = open(data_path+"train_data_list_trimmed.txt","r")
   trainfiles = f.readlines()
-  margin = 0.3 
+  margin = 0.3
   updateD = True
   updateG = True
   iters = 0
@@ -99,7 +99,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
                                                                             paths,
                                                                             shapes,
                                                                             Ks, Ts))
-            for i in xrange(batch_size):
+            for i in range(batch_size):
               seq_batch[i] = output[i][0]
               diff_batch[i] = output[i][1]
 
@@ -136,9 +136,9 @@ def main(lr, batch_size, alpha, beta, image_size, K,
               updateG = True
 
             counter += 1
-  
+
             print(
-                "Iters: [%2d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f" 
+                "Iters: [%2d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f"
                 % (iters, time.time() - start_time, errD_fake+errD_real,errG)
             )
 
@@ -151,11 +151,11 @@ def main(lr, batch_size, alpha, beta, image_size, K,
               sbatch  = seq_batch[0,:,:,K:].swapaxes(0,2).swapaxes(1,2)
               samples = np.concatenate((samples,sbatch), axis=0)
               print("Saving sample ...")
-              save_images(samples[:,:,:,::-1], [2, T], 
+              save_images(samples[:,:,:,::-1], [2, T],
                           samples_dir+"train_%s.png" % (iters))
             if np.mod(counter, 500) == 2:
               model.save(sess, checkpoint_dir, counter)
-  
+
             iters += 1
 
 if __name__ == "__main__":

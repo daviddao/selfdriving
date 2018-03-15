@@ -25,11 +25,11 @@ def main(lr, batch_size, alpha, beta, image_size, K,
   f = open(data_path+"../train_with_occupancy.txt","r")
   trainfiles = f.readlines()
   print str(len(trainfiles))+" train files"
-  margin = 0.3 
+  margin = 0.3
   updateD = True
   updateG = True
   iters = 0
-  
+
   prefix  = ("GRIDMAP_MCNET_deepTracking_occ"
           + "_image_size="+str(image_size)
           + "_K="+str(K)
@@ -38,7 +38,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
           + "_alpha="+str(alpha)
           + "_beta="+str(beta)
           + "_lr="+str(lr))
-  
+
   print("\n"+prefix+"\n")
   checkpoint_dir = "../models/"+prefix+"/"
   samples_dir = "../samples/"+prefix+"/"
@@ -70,7 +70,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
 
     tf.global_variables_initializer().run()
 
-    if model.load(sess, checkpoint_dir): 
+    if model.load(sess, checkpoint_dir):
       print(" [*] Load SUCCESS")
     else:
       print(" [!] Load failed...")
@@ -87,7 +87,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
 
     with Parallel(n_jobs=batch_size) as parallel:
       while iters < num_iter:
-        mini_batches = get_minibatches_idx(len(trainfiles), batch_size, shuffle=True)  
+        mini_batches = get_minibatches_idx(len(trainfiles), batch_size, shuffle=True)
         for _, batchidx in mini_batches:
           if len(batchidx) == batch_size:
             seq_batch  = np.zeros((batch_size, image_size, image_size,
@@ -106,13 +106,13 @@ def main(lr, batch_size, alpha, beta, image_size, K,
                                                                             shapes,
                                                                             Ks, Ts,
                                                                             seq_steps))
-            for i in xrange(batch_size):
+            for i in range(batch_size):
               seq_batch[i] = output[i][0]
               diff_batch[i] = output[i][1]
 
             def extract_content_frames(sequence_batch):
               content_list = []
-              for seq_index in xrange(sequence_steps):
+              for seq_index in range(sequence_steps):
                 content_list.append(sequence_batch[:,:,:,K-1+seq_index*(K+T),:])
               return np.stack(content_list, axis=3)
 
@@ -153,9 +153,9 @@ def main(lr, batch_size, alpha, beta, image_size, K,
               updateG = True
 
             counter += 1
-  
+
             print(
-                "Iters: [%5d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, img_loss: %.8f" 
+                "Iters: [%5d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, img_loss: %.8f"
                 % (iters, time.time() - start_time, errD_fake+errD_real,errG,img_err)
             )
 
@@ -165,19 +165,19 @@ def main(lr, batch_size, alpha, beta, image_size, K,
                                              model.xt: extracted_seq_batch,
                                              model.target: seq_batch})
               print occ_map
-              for seq_step in xrange(sequence_steps):
+              for seq_step in range(sequence_steps):
                 samples_seq_step = samples[0,:,:,T*seq_step:T*(seq_step+1)].swapaxes(0,2).swapaxes(1,2)
                 sbatch  = target_occ[0,:,:,T*seq_step:T*(seq_step+1)].swapaxes(0,2).swapaxes(1,2)
                 occ_map_step = occ_map[0,:,:,T*seq_step:T*(seq_step+1)].swapaxes(0,2).swapaxes(1,2)
                 samples_seq_step = np.concatenate((samples_seq_step,sbatch), axis=0)
                 print("Saving sample ...")
-                save_images(occ_map_step[:,:,:,::-1], [1, T], 
+                save_images(occ_map_step[:,:,:,::-1], [1, T],
                           samples_dir+"train_"+str(iters).zfill(7)+"_"+str(seq_step)+"_occ.png")
-                save_images(samples_seq_step[:,:,:,::-1], [2, T], 
+                save_images(samples_seq_step[:,:,:,::-1], [2, T],
                           samples_dir+"train_"+str(iters).zfill(7)+"_"+str(seq_step)+".png")
             if np.mod(counter, 500) == 2:
               model.save(sess, checkpoint_dir, counter)
-  
+
             iters += 1
 
 if __name__ == "__main__":

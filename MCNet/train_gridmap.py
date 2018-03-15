@@ -23,11 +23,11 @@ def main(lr, batch_size, alpha, beta, image_size, K,
   data_path = '/lhome/phlippe/dataset/Big_loop/Train128x128/' # "/lhome/phlippe/dataset/TwoHourSequence_crop/Train/compressed64x64/"
   f = open(data_path+"../train_file_list_128x128.txt","r")
   trainfiles = f.readlines()
-  margin = 0.3 
+  margin = 0.3
   updateD = True
   updateG = True
   iters = 0
-  
+
   prefix  = ("GRIDMAP_MCNET"
           + "_image_size="+str(image_size)
           + "_K="+str(K)
@@ -36,7 +36,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
           + "_alpha="+str(alpha)
           + "_beta="+str(beta)
           + "_lr="+str(lr))
-  
+
   print("\n"+prefix+"\n")
   checkpoint_dir = "../models/"+prefix+"/"
   samples_dir = "../samples/"+prefix+"/"
@@ -67,7 +67,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
 
     tf.global_variables_initializer().run()
 
-    if model.load(sess, checkpoint_dir): 
+    if model.load(sess, checkpoint_dir):
       print(" [*] Load SUCCESS")
     else:
       print(" [!] Load failed...")
@@ -84,7 +84,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
 
     with Parallel(n_jobs=batch_size) as parallel:
       while iters < num_iter:
-        mini_batches = get_minibatches_idx(len(trainfiles), batch_size, shuffle=True)  
+        mini_batches = get_minibatches_idx(len(trainfiles), batch_size, shuffle=True)
         for _, batchidx in mini_batches:
           if len(batchidx) == batch_size:
             seq_batch  = np.zeros((batch_size, image_size, image_size,
@@ -102,7 +102,7 @@ def main(lr, batch_size, alpha, beta, image_size, K,
                                                                             paths,
                                                                             shapes,
                                                                             Ks, Ts))
-            for i in xrange(batch_size):
+            for i in range(batch_size):
               seq_batch[i] = output[i][0]
               diff_batch[i] = output[i][1]
 
@@ -142,9 +142,9 @@ def main(lr, batch_size, alpha, beta, image_size, K,
               updateG = True
 
             counter += 1
-  
+
             print(
-                "Iters: [%5d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, img_loss: %.8f" 
+                "Iters: [%5d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, img_loss: %.8f"
                 % (iters, time.time() - start_time, errD_fake+errD_real,errG,img_err)
             )
 
@@ -157,11 +157,11 @@ def main(lr, batch_size, alpha, beta, image_size, K,
               sbatch  = seq_batch[0,:,:,K:].swapaxes(0,2).swapaxes(1,2)
               samples = np.concatenate((samples,sbatch), axis=0)
               print("Saving sample ...")
-              save_images(samples[:,:,:,::-1], [2, T], 
+              save_images(samples[:,:,:,::-1], [2, T],
                           samples_dir+"train_"+str(iters).zfill(7)+".png")
             if np.mod(counter, 500) == 2:
               model.save(sess, checkpoint_dir, counter)
-  
+
             iters += 1
 
 if __name__ == "__main__":

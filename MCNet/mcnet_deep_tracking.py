@@ -113,7 +113,7 @@ class MCNET(object):
             start_frame = d_iteration_index * (self.K + self.T)
             end_frame = start_frame + self.d_input_frames
             """
-            
+
 
             start_frame = 0
             end_frame = self.d_input_frames
@@ -216,13 +216,13 @@ class MCNET(object):
                           self.image_size[1] / 8, 512])
         reuse = False
         pred = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             # Encoder
             diff_steps = self.K
             start_step = 0
             if iter_index == 0:
                 start_step = 1
-            for t in xrange(start_step, self.K):
+            for t in range(start_step, self.K):
                 # print diff_in.shape
                 # print str(t+(self.K+self.T)*iter_index)
                 if t == 0 and iter_index != 0 and self.T > 1:
@@ -240,7 +240,7 @@ class MCNET(object):
             xt_input = xt[:, :, :, iter_index, :]
 
             # Decoder
-            for t in xrange(self.T):
+            for t in range(self.T):
                 if t == 0:
                     h_cont, res_c = self.content_enc(
                         xt_input, reuse=(iter_index > 0))
@@ -359,7 +359,7 @@ class MCNET(object):
     def residual(self, input_dyn, input_cont, reuse=False):
         n_layers = len(input_dyn)
         res_out = []
-        for l in xrange(n_layers):
+        for l in range(n_layers):
             input_ = tf.concat(axis=3, values=[input_dyn[l], input_cont[l]])
             out_dim = input_cont[l].get_shape()[3]
             res1 = relu(batch_norm(conv2d(input_, output_dim=out_dim,
@@ -449,7 +449,7 @@ class MCNET(object):
 
     def extract_loss_target(self, target):
         target_list = []
-        for iter_index in xrange(0, self.iterations):
+        for iter_index in range(0, self.iterations):
             target_step = target[
                 :, :, :, (self.K + self.T) * iter_index + self.K:(self.K + self.T) * (iter_index + 1), :]
             target_list.append(target_step)
@@ -468,7 +468,7 @@ class MCNET(object):
 
     def add_input_to_generated_data(self, generated_data, input_data):
         combined_data = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             start_frame_input = iter_index * (self.K + self.T)
             end_frame_input = iter_index * (self.K + self.T) + self.K
             combined_data.append(input_data[:,:,:,start_frame_input:end_frame_input,:self.c_dim])

@@ -209,10 +209,10 @@ class MCNET(object):
 
         reuse = False
         pred = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             print "Iteration " + str(iter_index)
             # Ground Truth as Input
-            for t in xrange(self.K):
+            for t in range(self.K):
                 timestep = iter_index * (self.K + self.T) + t
                 content_enc_input = self.content_in[:, :, :, timestep, :]
                 motion_enc_input = self.motion_in[:, :, :, timestep, :]
@@ -228,7 +228,7 @@ class MCNET(object):
                 reuse = True
 
             # Prediction sequence
-            for t in xrange(self.T):
+            for t in range(self.T):
                 content_enc_input = tf.concat(
                     [pred[-1][:, :, :, 0:1], self.pred_occlusion_map], axis=3)
                 motion_enc_input = tf.concat(
@@ -343,7 +343,7 @@ class MCNET(object):
     def residual(self, input_dyn, input_cont, reuse=False):
         n_layers = len(input_dyn)
         res_out = []
-        for l in xrange(n_layers):
+        for l in range(n_layers):
             input_ = tf.concat(axis=3, values=[input_dyn[l], input_cont[l]])
             out_dim = input_cont[l].get_shape()[3]
             res1 = relu(batch_norm(conv2d(input_, output_dim=out_dim,
@@ -433,7 +433,7 @@ class MCNET(object):
 
     def add_input_to_generated_data(self, generated_data, input_data):
         combined_data = []
-        for iter_index in xrange(self.iterations):
+        for iter_index in range(self.iterations):
             start_frame_input = iter_index * (self.K + self.T)
             end_frame_input = iter_index * (self.K + self.T) + self.K
             combined_data.append(

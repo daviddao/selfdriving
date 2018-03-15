@@ -9,13 +9,13 @@ Usage:
     python cutSamplesInSingleFrame.py [--path SAMPLE_FILE_PATH] [--rows ROW_COUNT] [--cols COLUMN_COUNT]
 
 Args:
-    path - Path to parent directory of all samples which should be processed. For each sample a new directory will be created next to the it containing 
+    path - Path to parent directory of all samples which should be processed. For each sample a new directory will be created next to the it containing
            all extracted frames and GIFs.
     rows - Number of rows in the samples. E.g. for the structure above the row count is 2
     cols - Number of columns in the samples. E.g. for the structure above the column count is 10
 
 """
-import numpy as np 
+import numpy as np
 from glob import glob
 from scipy.ndimage import imread
 import scipy.misc
@@ -32,13 +32,13 @@ def cutSampleInSingleFrames(sample, row_count, column_count, image_base_path):
     column_step = sample.shape[1] / column_count
     step_file = image_base_path.rsplit("/",-1)[-2].split("_",-1)[-1]
 
-    for row in xrange(row_count):
+    for row in range(row_count):
         all_frames_in_row = []
         if row is 0:
             prefile = "_gen_"+step_file+"_"
         else:
             prefile = "_gt_"+step_file+"_"
-        for column in xrange(column_count):
+        for column in range(column_count):
             frame = sample[row * row_step: (row + 1) * row_step, column * column_step : (column + 1) * column_step,:]
             file_path = image_base_path
             file_path += prefile
@@ -52,7 +52,7 @@ def cutSampleInSingleFrames(sample, row_count, column_count, image_base_path):
 
 def main(sample_file_path, row_count, column_count):
     sample_paths = sorted(glob(os.path.join(sample_file_path, "*.png")))
-    
+
     for sample_file in sample_paths:
         print sample_file
         sample = scipy.misc.imread(sample_file)
