@@ -90,6 +90,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
           )
         else:
           d_optim = tf.constant(0.0)
+          
         g_optim = tf.train.AdamOptimizer(lr_G, beta1=0.5).minimize(
             alpha * model.L_img + beta * model.L_GAN, var_list=model.g_vars
         )
