@@ -10,11 +10,12 @@ def _int64_feature(value):
 def _bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-def main(file_name, data_path, dest_path, all_in_one=True, image_size=96, seq_steps=4, K=9, T=10, useCombinedMask=False):
+def main(file_name, data_path, dest_path, all_in_one=True, image_size=96, seq_steps=4, K=9, T=10, useCombinedMask=False, split=1.0):
     """
 
     Args:
     file_name - Name of .txt where .npz files are listed
+    data_path - Destination Location, where file_name file is located
     dest_path - Destination Location, where tfrecords folder is located
     all_in_one - If all .npz files should be written into one .tfrecord or separate records
     record_name - Name of the resulting .TFRecord (deprecated)
@@ -30,19 +31,34 @@ def main(file_name, data_path, dest_path, all_in_one=True, image_size=96, seq_st
     f = open(train_list, "r")
     f = f.read()
     trainfiles = f.split('\n', -1)
-    num_samples = len(trainfiles)
+    num_samples = len(trainfiles)-1
     train_files = np.array(trainfiles)
-    print(str(num_samples-1) + " samples")
+    print(str(num_samples) + " samples")
+    if split==1.0:
+        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, np.arange(num_samples), 'all')
+    else:
+        # shuffle data, then split
+        shuffler = np.arange(num_samples)
+        np.random.shuffle(shuffler)
+        split_ind = int(num_samples*split)
+        train_samples = shuffler[:split_ind]
+        val_samples = shuffler[split_ind:]
+        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, train_samples, 'train')
+        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, val_samples, 'val')
+        
+    
+    
+def converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, samples, strname):
     shapes = np.repeat(np.array([image_size]), 1, axis=0)
     sequence_steps = np.repeat(np.array([1 + seq_steps * (K + T)]), 1, axis=0)
     combLoss = np.repeat(useCombinedMask, 1, axis=0)
     if not all_in_one:
         #print('Writing', filename)
-        for index in tqdm(range(num_samples-1)):
+        for index in tqdm(samples):
             #filename = os.path.join(data_path, record_name + str(index) + '.tfrecord')
             base = os.path.basename(train_files[index])
             base = os.path.splitext(base)[0]
-            filename = os.path.join(dest_path + 'tfrecords', base + '.tfrecord')
+            filename = os.path.join(dest_path + 'tfrecords', base + '_' + strname + '.tfrecord')
             #print("writing "+base)
             tfiles = train_files[index]
             with tf.python_io.TFRecordWriter(filename) as writer:
@@ -74,11 +90,11 @@ def main(file_name, data_path, dest_path, all_in_one=True, image_size=96, seq_st
                 
     else:
         base = "all_in_one"
-        filename = os.path.join(dest_path, base + '.tfrecord')
+        filename = os.path.join(dest_path, base + '_' + strname + '.tfrecord')
         with tf.python_io.TFRecordWriter(filename) as writer:
             #filename = os.path.join(data_path, record_name + str(index) + '.tfrecord')
             #print("writing "+base)
-            for index in tqdm(range(num_samples-1)):
+            for index in tqdm(samples):
                 tfiles = train_files[index]
                 for f, img_sze, seq, useCM in zip([tfiles], shapes,sequence_steps,combLoss):
                     target_seq, input_seq, maps, tf_matrix = load_gridmap_onmove_tfrecord(f, img_sze, seq, useCM)
@@ -174,6 +190,8 @@ if __name__ == '__main__':
     )
     parser.add_argument("--filename", type=str, dest="file_name",
                         default='train_onmove_long_96x96.txt', help="Name of .txt where .npz files are listed")
+    parser.add_argument("--data_path", type=str, dest="data_path",
+                        default='/mnt/ds3lab-scratch/lucala/phlippe/dataset/BigLoop/', help="Destination Location, where file is located")
     parser.add_argument("--dest_path", type=str, dest="dest_path",
                         default='/mnt/ds3lab-scratch/lucala/phlippe/dataset/BigLoop/', help="Destination Location, where tfrecords folder is located")
     parser.add_argument("--all_in_one", type=bool, dest="all_in_one",
@@ -188,5 +206,7 @@ if __name__ == '__main__':
                         default=9, help="Ground Truth Length")
     parser.add_argument("--T", type=int, dest="T",
                         default=10, help="")
+    parser.add_argument("--split", type=float, dest="split",
+                        default=1.0, help="Percentage of data used for training")
     args = parser.parse_args()
     main(**vars(args))
