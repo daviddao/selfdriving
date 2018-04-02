@@ -31,11 +31,13 @@ next_transformation_batch = None
 first_batch = True
 
 def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
-         T, num_iter, gpu, sequence_steps, d_input_frames, useSELU=True,
-         useCombinedMask=False, predOcclValue=1, img_save_freq=200):
+         T, num_iter, gpu, sequence_steps, d_input_frames, tfrecordname, useSELU=True,
+         useCombinedMask=False, predOcclValue=1, img_save_freq=200, model_name="", useSharpen=False):
     # "/lhome/phlippe/dataset/TwoHourSequence_crop/Train/compressed64x64/"
     data_path = '/mnt/ds3lab/daod/mercedes_benz/phlippe/dataset/BigLoop/'
-    data_path_scratch = '/mnt/ds3lab-scratch/lucala/phlippe/dataset/BigLoop/'
+    data_path_scratch = '/mnt/ds3lab-scratch/lucala/phlippe/dataset/'
+    model_path_scratch = '/mnt/ds3lab-scratch/lucala/phlippe/'
+    """
     if sequence_steps * (K + T) <= 60:
       train_list = data_path + "train_onmove_96x96.txt"
     else:
@@ -43,6 +45,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
     f = open(train_list, "r")
     trainfiles = f.readlines()
     print(str(len(trainfiles)) + " train files")
+    """
     margin = 0.3
     updateD = True
     updateG = True
@@ -51,7 +54,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
 
     date_now = datetime.datetime.now()
 
-    prefix = ("GRIDMAP_MCNET_onmove"
+    prefix = (model_name
+            + "GRIDMAP_MCNET_onmove"
               + "_image_size=" + str(image_size)
               + "_K=" + str(K)
               + "_T=" + str(T)
@@ -68,9 +72,9 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
               + "_datetime=" + str(date_now.hour)+":"+str(date_now.minute)+"-"+str(date_now.day)+"-"+str(date_now.month)+"-"+str(date_now.year))
 
     print("\n" + prefix + "\n")
-    checkpoint_dir = "../models/" + prefix + "/"
-    samples_dir = "../samples/" + prefix + "/"
-    summary_dir = "../logs/" + prefix + "/"
+    checkpoint_dir = model_path_scratch + "models/" + prefix + "/"
+    samples_dir = model_path_scratch + "samples/" + prefix + "/"
+    summary_dir = model_path_scratch + "logs/" + prefix + "/"
 
     if not exists(checkpoint_dir):
         makedirs(checkpoint_dir)
@@ -152,25 +156,27 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
 
             return input_seq, target_seq, maps, tf_matrix
 
-        dataset = tf.data.TFRecordDataset([data_path_scratch + 'all_in_one.tfrecord'])
+        dataset = tf.data.TFRecordDataset([data_path_scratch + tfrecordname + '.tfrecord'])
         #tfrecordsLoc = data_path_scratch + "tfrecords/"
         #files = tf.data.Dataset.list_files(tfrecordsLoc + "*.tfrecord").shuffle(len(trainfiles))
         #dataset = files.interleave(lambda x: tf.data.TFRecordDataset(x).prefetch(100),cycle_length=200)
         #map trainfiles to numbers by extracting last part
         dataset = dataset.map(_parse_function, num_parallel_calls=64)
         #shuffle and enhance dataset by num_iter amount
-        dataset = dataset.shuffle(10000).repeat(num_iter)
-        #dataset = dataset.batch(batch_size*num_gpu)
-        #dataset = dataset.batch(batch_size) #dequeue for every gpu, no entire dequeue and splitting
+        dataset = dataset.shuffle(1000).repeat(num_iter) #initially 10k but too much memory, process is killed
         dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
         dataset = dataset.prefetch(num_gpu*2)
             #iterator = dataset.make_one_shot_iterator()
             #seq_batch, input_batch, map_batch, transformation_batch = iterator.get_next()
             #return seq_batch, input_batch, map_batch, transformation_batch
 
-        print("Setup optimizer...") #simplified optimizer, removed GAN parts!
+        print("Setup optimizer...")
         #g_optim = tf.train.AdamOptimizer(lr_G, beta1=0.5).minimize(alpha * model.L_img, var_list=model.g_vars)
+        if beta != 0:
+            opt_D = tf.train.AdamOptimizer(lr_D, beta1=0.5)
+
         opt_E = tf.train.AdamOptimizer(lr_G, beta1=0.5)
+        
         
         # Create a variable to count number of train calls
         global_step = tf.get_variable(
@@ -179,6 +185,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
         
         # These are the lists of gradients for each tower 
         tower_grads = []
+        if beta != 0:
+            tower_grads_d = []
 
         print("Setup model...")
         model = MCNET(image_size=[image_size, image_size], c_dim=1,
@@ -189,18 +197,14 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                       useSELU=True, motion_map_dims=2,
                       showFutureMaps=True,
                       predOcclValue=predOcclValue,
-                      gpu=-1, useGAN=(beta != 0)) #gpu dummy value
+                      gpu=-1, useGAN=(beta != 0), useSharpen=useSharpen) #gpu dummy value
 
         
         input_shape = [batch_size*num_gpu, model.image_size[0],model.image_size[1], sequence_steps * (K + T), model.c_dim + 1]
         motion_map_shape = [batch_size*num_gpu, model.image_size[0],model.image_size[1], sequence_steps * (K + T) + model.maps_offset, 2] #last arg. motion_map_dims=2
         target_shape = [batch_size*num_gpu, model.image_size[0],model.image_size[1], sequence_steps * (K + T), model.c_dim + 1]  # +occlusion map for cutting out the gradients
         ego_motion_shape = [batch_size*num_gpu, sequence_steps * (K + T), 3, 8]
-        
-        #input_tensor = tf.placeholder(tf.float32, input_shape, name='input_tensor')
-        #motion_map_tensor = tf.placeholder(tf.float32, motion_map_shape, name='motion_map_tensor')
-        #target = tf.placeholder(tf.float32, target_shape, name='target')
-        #ego_motion = tf.placeholder(tf.float32, ego_motion_shape, name='ego_motion')
+
         model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
         
         #create iterator
@@ -214,15 +218,9 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
             for i in range(len(gpu)):
                   with tf.device('/device:GPU:%d' % gpu[i]):
                         with tf.name_scope('Tower_%d' % (i)) as scope:
-                            # grab this portion of the input
-                            #input_batch = input_tensor[i*batch_size:(i+1)*batch_size,:]
-                            #map_batch = motion_map_tensor[i*batch_size:(i+1)*batch_size,:]
-                            #seq_batch = target[i*batch_size:(i+1)*batch_size,:]
-                            #transformation_batch = ego_motion[i*batch_size:(i+1)*batch_size,:]
                             seq_batch, input_batch, map_batch, transformation_batch = iterator.get_next()
                             
                             # Construct the model
-                            #z_x_mean, z_x_log_sigma_sq, z_x, x_tilde, l_x_tilde, x_p, d_x, l_x, d_x_p, z_p = inference(next_batch)
                             pred, trans_pred, pre_trans_pred = model.forward(input_batch, map_batch, transformation_batch,i)
 
                             # Calculate the loss for this tower   
@@ -236,13 +234,61 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                             model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
                             model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
                             
+                            if beta != 0:
+                                start_frame = 0
+                                center_frame = model.d_input_frames // 2
+                                end_frame = model.d_input_frames
+                                gen_sequence = tf.concat(axis=3, values=[model.target_masked[
+                                                         :, :, :, start_frame:center_frame, :], model.G_masked[:, :, :, center_frame:end_frame, :]])
+                                gt_sequence = model.target_masked[:, :, :, start_frame:end_frame, :]
+                                good_data = tf.reshape(gt_sequence,
+                                                       [model.batch_size, model.image_size[0],
+                                                        model.image_size[1], -1])
+                                gen_data = tf.reshape(gen_sequence,
+                                                      [model.batch_size, model.image_size[0],
+                                                       model.image_size[1], -1])
+
+                                with tf.variable_scope("DIS", reuse=False):
+                                    model.D, model.D_logits = model.discriminator(good_data)
+
+                                with tf.variable_scope("DIS", reuse=True):
+                                    model.D_, model.D_logits_ = model.discriminator(gen_data)
+
+                                # Standard loss for real and fake (only for display and parameter
+                                # purpose, no loss trained on)
+
+                                model.d_loss_real = tf.reduce_mean(
+                                    tf.nn.sigmoid_cross_entropy_with_logits(
+                                        logits=model.D_logits, labels=tf.ones_like(model.D)
+                                    )
+                                )
+                                model.d_loss_fake = tf.reduce_mean(
+                                    tf.nn.sigmoid_cross_entropy_with_logits(
+                                        logits=model.D_logits_, labels=tf.zeros_like(model.D_)
+                                    )
+                                )
+                                                            
+                            
                             # specify loss to parameters
                             model.t_vars = tf.trainable_variables()
                             model.g_vars = [var for var in model.t_vars if 'DIS' not in var.name]
+                            if beta != 0:
+                                model.d_vars = [var for var in model.t_vars if 'DIS' in var.name]
 
                             # Calculate the losses specific to encoder, generator, decoder
-                            #L_e = tf.clip_by_value(KL_loss*KL_param + LL_loss, -100, 100)
+                            #L_e = tf.clip_by_value(KL_loss*KL_param + LL_loss, -100, 100)                            
                             model.L_img = model.weighted_BCE_loss(model.G_masked, model.target_masked) #cross-entropy mean
+                            model.L_BCE = model.L_img
+                            if (beta != 0): #use GAN
+                                model.L_GAN = -tf.reduce_mean(model.D_)
+                                model.d_loss = model.d_loss_fake + model.d_loss_real
+                            else:
+                                model.d_loss_fake = tf.constant(0.0)
+                                model.d_loss_real = tf.constant(0.0)
+                                model.d_loss = tf.constant(0.0)
+                                model.L_GAN = tf.constant(0.0)
+                                
+                            model.L_p = tf.reduce_mean(tf.square(model.G_masked - model.target_masked))
                             
                             # Assemble all of the losses for the current tower only.
                             #losses = tf.get_collection('losses', scope)
@@ -252,33 +298,53 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                             # Reuse variables for the next tower.
                             tf.get_variable_scope().reuse_variables()
                             
-                            model.L_BCE = model.L_img
-                            model.L_GAN = tf.constant(0.0)
-                            model.L_p = tf.reduce_mean(tf.square(model.G_masked - model.target_masked))
                             model.loss_sum = tf.summary.scalar("L_img", model.L_img)
                             model.L_p_sum = tf.summary.scalar("L_p", model.L_p)
                             model.L_BCE_sum = tf.summary.scalar("L_BCE", model.L_BCE)
                             model.L_GAN_sum = tf.summary.scalar("L_GAN", model.L_GAN)
+                            model.d_loss_sum = tf.summary.scalar("d_loss", model.d_loss)
+                            model.d_loss_real_sum = tf.summary.scalar("d_loss_real", model.d_loss_real)
+                            model.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", model.d_loss_fake)
                             
                             summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
 
                             # Calculate the gradients for the batch of data on this tower.
-                            curr_grad = opt_E.compute_gradients(alpha * model.L_img, var_list = model.g_vars)
+                            curr_grad = opt_E.compute_gradients(alpha * model.L_img + beta * model.L_GAN, var_list = model.g_vars)
 
                             # Keep track of the gradients across all towers.
                             tower_grads.append(curr_grad)
+                            
+                            if beta != 0:
+                                curr_grad_d = opt_D.compute_gradients(model.d_loss, var_list=model.d_vars)
+                                tower_grads_d.append(curr_grad_d)
 
 
     with graph.as_default():
         #with tf.device('/cpu:0'):
         # Average the gradients
         grads = average_gradients(tower_grads)
+        # Add histograms for gradients.
+        for grad, var in grads:
+            if grad is not None:
+                summaries.append(tf.summary.histogram(var.op.name + '/gradients', grad))
         # apply the gradients with our optimizers
         train = opt_E.apply_gradients(grads, global_step=global_step)
+
+        if beta != 0:
+            grads_d = average_gradients(tower_grads_d)
+            for grad, var in grads_d:
+                if grad is not None:
+                    summaries.append(tf.summary.histogram(var.op.name + '/gradients_d', grad))
+            train_d = opt_D.apply_gradients(grads_d, global_step=global_step)
+
+
+        # Add histograms for trainable variables.
+        for var in tf.trainable_variables():
+            summaries.append(tf.summary.histogram(var.op.name, var))
         
         
     print("Setup session...")
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.0, allow_growth=False)
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.0, allow_growth=True)
     #with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
     #                                      log_device_placement=False,
     #                                      gpu_options=gpu_options)) as sess:
@@ -297,11 +363,13 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
         else:
             print(" [!] Load failed...")
 
-        g_sum = tf.summary.merge([model.L_p_sum,
-                                  model.L_BCE_sum, model.loss_sum,
-                                  model.L_GAN_sum])
-        #d_sum = tf.summary.merge([model.d_loss_real_sum, model.d_loss_sum,
-        #                          model.d_loss_fake_sum])
+        #g_sum = tf.summary.merge([model.L_p_sum,
+        #                          model.L_BCE_sum, model.loss_sum,
+        #                          model.L_GAN_sum])
+        g_sum = tf.summary.merge(summaries)
+        if beta != 0:
+            d_sum = tf.summary.merge([model.d_loss_real_sum, model.d_loss_sum,
+                                      model.d_loss_fake_sum])
         writer = tf.summary.FileWriter(summary_dir, sess.graph)
         #print("Writer set...")
         counter = iters + 1
@@ -311,6 +379,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
         
         #initial assignment, dummy value
         max_pred = min_pred = max_labels = min_labels = img_err = -1
+        errD = errD_fake = errD_real = errG = 0
         
         #num_iter_updated = num_iter // gpu
         while iters < num_iter:
@@ -321,21 +390,23 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
             for i in range(len(trainfiles)//(batch_size*num_gpu)):
                 load_start = time.time()
                 #seq_batch, input_batch, map_batch, transformation_batch = sess.run(next_batch)
-                _, summary_str, max_pred, min_pred, max_labels, min_labels = sess.run([train, g_sum, model.max_pred, model.min_pred, model.max_labels, model.min_labels])#,
-                                                           #                           feed_dict={input_tensor: input_batch,
-                                                           #  motion_map_tensor: map_batch,
-                                                           #  target: seq_batch,
-                                                           #  ego_motion: transformation_batch})   
-                print("Run done in "+str(time.time() - load_start)+"sec.")
-                errD = errD_fake = errD_real = errG = 0
-                img_err = model.L_img.eval(#feed_dict={input_tensor: input_batch,
-                                           #                  motion_map_tensor: map_batch,
-                                           #                  target: seq_batch,
-                                           #                  ego_motion: transformation_batch},
-                                           session=sess)
-                iters_G += 1
-                iters += 1
+                if beta != 0 and updateD:
+                    _, summary_str = sess.run([train_d, d_sum])
+                    writer.add_summary(summary_str, counter)
 
+                if updateG:
+                    _, summary_str, max_pred, min_pred, max_labels, min_labels = sess.run([train, g_sum, model.max_pred, model.min_pred, model.max_labels, model.min_labels])
+                    writer.add_summary(summary_str, counter)
+                    iters_G += 1
+                iters += 1
+                print("Run done in "+str(time.time() - load_start)+"sec.")
+                
+                errD = model.d_loss.eval(session=sess)
+                errD_fake = model.d_loss_fake.eval(session=sess)
+                errD_real = model.d_loss_real.eval(session=sess)
+                errG = model.L_GAN.eval(session=sess)
+                img_err = model.L_img.eval(session=sess)
+                
                 training_models_info = ""
                 if not updateD:
                     training_models_info += ", D not trained"
@@ -343,12 +414,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                     training_models_info += ", G not trained"
 
                 if errD_fake < margin or errD_real < margin:
-                  updateD = False
+                    updateD = False
                 if errD_fake > (1.-margin) or errD_real > (1.-margin):
-                  updateG = False
+                    updateG = False
                 if True:#not updateD and not updateG:
-                  updateD = True
-                  updateG = True
+                    updateD = True
+                    updateG = True
 
                 counter += 1
 
@@ -364,10 +435,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
 
                 if np.mod(counter, img_save_freq) == 1:
                     #print(np.reshape(transformation_batch[:,:,0,:6], [transformation_batch.shape[0], transformation_batch.shape[1], 2, 3]))
-                    samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask])#,feed_dict={input_tensor: input_batch,
-                                                    #         motion_map_tensor: map_batch,
-                                                    #         target: seq_batch,
-                                                    #         ego_motion: transformation_batch})    
+                    samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask])
                     for seq_step in range(sequence_steps * 2):
                         start_frame = seq_step // 2 * (K + T)
                         end_frame = start_frame + K
@@ -453,7 +521,12 @@ if __name__ == "__main__":
                         default=-1, help="If SELU should be used instead of RELU")
     parser.add_argument("--imgFreq", type=int, dest="img_save_freq",
                         default=100, help="If SELU should be used instead of RELU")
-
+    parser.add_argument("--prefix", type=str, dest="model_name",
+                        default="", help="Prefix appended to model name for easier search")
+    parser.add_argument("--sharpen", type=bool, dest="useSharpen",
+                        default=False, help="If sharpening should be used")
+    parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
+                        default="BigLoop2-5", help="tfrecord name")
 
     args = parser.parse_args()
     main(**vars(args))

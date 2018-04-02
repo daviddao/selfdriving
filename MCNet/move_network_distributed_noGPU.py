@@ -21,7 +21,7 @@ class MCNET(object):
                  iterations=1, d_input_frames=20, useSELU=False,
                  motion_map_dims=2, showFutureMaps=True,
                  predOcclValue=-1, useSmallSharpener=False,
-                 gpu=[0], useGAN=True):
+                 gpu=[0], useGAN=True, useSharpen=False):
 
         self.batch_size = batch_size
         self.image_size = image_size
@@ -33,6 +33,7 @@ class MCNET(object):
         self.small_sharpener = useSmallSharpener
         self.gpu = gpu
         self.useGAN = useGAN
+        self.useSharpen = useSharpen
 
         self.gf_dim = 32
         self.df_dim = 64
@@ -278,7 +279,8 @@ class MCNET(object):
                         prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
                         prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
                         trans_pred.append(tf.identity(prediction_output))
-                        # prediction_output = self.sharpen_image(prediction_output, motion_maps[:,:,:,timestep+1,:], motion_enc_input[:,:,:,:2], reuse=reuse)
+                        if self.useSharpen:
+                            prediction_output = self.sharpen_image(prediction_output, motion_maps[:,:,:,timestep+1,:], motion_enc_input[:,:,:,:2], reuse=reuse)
                         self.transform_hidden_states(transform_matrix)
                         pred.append(prediction_output)
                         reuse = True
@@ -295,7 +297,8 @@ class MCNET(object):
                         prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
                         prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
                         trans_pred.append(tf.identity(prediction_output))
-                        # prediction_output = self.sharpen_image(prediction_output, motion_maps[:,:,:,timestep+1,:], motion_enc_input[:,:,:,:2], reuse=reuse)
+                        if self.useSharpen:
+                            prediction_output = self.sharpen_image(prediction_output, motion_maps[:,:,:,timestep+1,:], motion_enc_input[:,:,:,:2], reuse=reuse)
                         self.transform_hidden_states(transform_matrix)
                         pred.append(prediction_output)
 
@@ -489,5 +492,5 @@ class MCNET(object):
                     (1 - labels) * tf.log(1 - predictions + epsilon), coefficient))
             cross_entropy_mean = tf.reduce_mean(
                 cross_entropy, name="cross_entropy")
-
+            print("Did the warning occur in BCE?")
             return cross_entropy_mean
