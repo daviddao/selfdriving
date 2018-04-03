@@ -29,6 +29,7 @@ next_input_batch = None
 next_map_batch = None
 next_transformation_batch = None
 first_batch = True
+len_trainfiles = 6869
 
 def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
          T, num_iter, gpu, sequence_steps, d_input_frames, tfrecordname, useSELU=True,
@@ -311,6 +312,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                             # Calculate the gradients for the batch of data on this tower.
                             curr_grad = opt_E.compute_gradients(alpha * model.L_img + beta * model.L_GAN, var_list = model.g_vars)
 
+                            print("Did the warning occur after compute_gradients?")
                             # Keep track of the gradients across all towers.
                             tower_grads.append(curr_grad)
                             
@@ -329,7 +331,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                 summaries.append(tf.summary.histogram(var.op.name + '/gradients', grad))
         # apply the gradients with our optimizers
         train = opt_E.apply_gradients(grads, global_step=global_step)
-
+        print("Did the warning occure after apply_gradients?")
         if beta != 0:
             grads_d = average_gradients(tower_grads_d)
             for grad, var in grads_d:
@@ -387,7 +389,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
             sess.run(iterator.initializer)
             
             #for _, batchidx in mini_batches:
-            for i in range(len(trainfiles)//(batch_size*num_gpu)):
+            for i in range(len_trainfiles//(batch_size*num_gpu)):
                 load_start = time.time()
                 #seq_batch, input_batch, map_batch, transformation_batch = sess.run(next_batch)
                 if beta != 0 and updateD:
