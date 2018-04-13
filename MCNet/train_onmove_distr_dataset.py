@@ -13,6 +13,7 @@ import scipy.io as sio
 from move_network_distributed_noGPU import MCNET
 from utils import *
 from load_gridmap import *
+import os
 from os import listdir, makedirs, system
 from os.path import exists
 from argparse import ArgumentParser
@@ -69,8 +70,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
               + "_d_in=" + str(d_input_frames)
               + "_selu=" + str(useSELU)
               + "_comb=" + str(useCombinedMask)
-              + "_predV=" + str(predOcclValue)
-              + "_datetime=" + str(date_now.hour)+":"+str(date_now.minute)+"-"+str(date_now.day)+"-"+str(date_now.month)+"-"+str(date_now.year))
+              + "_predV=" + str(predOcclValue))
+              #+ "_datetime=" + str(date_now.hour)+":"+str(date_now.minute)+"-"+str(date_now.day)+"-"+str(date_now.month)+"-"+str(date_now.year))
 
     print("\n" + prefix + "\n")
     checkpoint_dir = model_path_scratch + "models/" + prefix + "/"
@@ -131,45 +132,70 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
         
         print("Setup dataset...")
         #def input_fn():
+        # extract meta data from tfrecord name directly
+        imgsze_tf, seqlen_tf, K_tf, T_tf = parse_tfrecord_name(tfrecordname)
+        assert(image_size == imgsze_tf)
+        assert(sequence_steps <= seqlen_tf)
+        assert(K <= K_tf)
+        assert(T <= T_tf)
         def _parse_function(example_proto):
-            keys_to_features = {#'input_batch_shape': tf.FixedLenFeature((), tf.int64),
-                                #'seq_batch_shape': tf.FixedLenFeature((), tf.int64),
-                                #'maps_batch_shape': tf.FixedLenFeature((), tf.int64),
-                                #'transformation_batch_shape': tf.FixedLenFeature((), tf.int64),
+            keys_to_features = {#'image_size': tf.FixedLenFeature((), tf.int64),
+                                #'seq_steps': tf.FixedLenFeature((), tf.int64),
+                                #'K': tf.FixedLenFeature((), tf.int64),
+                                #'T': tf.FixedLenFeature((), tf.int64),
                                 'input_seq': tf.FixedLenFeature((), tf.string),
                                 'target_seq': tf.FixedLenFeature((), tf.string),
                                 'maps': tf.FixedLenFeature((), tf.string),
                                 'tf_matrix': tf.FixedLenFeature((), tf.string)}
 
             parsed_features = tf.parse_single_example(example_proto, keys_to_features)
-            #input_batch_shape = parsed_features['input_batch_shape']
-            #seq_batch_shape = parsed_features['seq_batch_shape']
-            #maps_batch_shape = parsed_features['maps_batch_shape']
-            #transformation_batch_shape = parsed_features['transformation_batch_shape']
-            input_batch_shape = [96, 96, 76, 2]
-            seq_batch_shape = [96, 96, 76, 2]
-            maps_batch_shape = [96, 96, 77, 2]
-            transformation_batch_shape = [76,3,8]
+            """
+            image_size = parsed_features['image_size']
+            seq_steps = parsed_features['seq_steps']
+            K = parsed_features['K']
+            T = parsed_features['T']
+            input_batch_shape = [image_size, image_size, seq_steps*(K+T), 2]
+            seq_batch_shape = [image_size, image_size, seq_steps*(K+T), 2]
+            maps_batch_shape = [image_size, image_size, seq_steps*(K+T)+1, 2]
+            transformation_batch_shape = [seq_steps*(K+T),3,8]
+            """
+
+            input_batch_shape = [imgsze_tf, imgsze_tf, seqlen_tf*(K_tf+T_tf), 2]
+            seq_batch_shape = [imgsze_tf, imgsze_tf, seqlen_tf*(K_tf+T_tf), 2]
+            maps_batch_shape = [imgsze_tf, imgsze_tf, seqlen_tf*(K_tf+T_tf)+1, 2]
+            transformation_batch_shape = [seqlen_tf*(K_tf+T_tf),3,8]
+
             input_seq = tf.reshape(tf.decode_raw(parsed_features['input_seq'], tf.float32), input_batch_shape, name='reshape_input_seq')
             target_seq = tf.reshape(tf.decode_raw(parsed_features['target_seq'], tf.float32), seq_batch_shape, name='reshape_target_seq')
             maps = tf.reshape(tf.decode_raw(parsed_features['maps'], tf.float32), maps_batch_shape, name='reshape_maps')
             tf_matrix = tf.reshape(tf.decode_raw(parsed_features['tf_matrix'], tf.float32), transformation_batch_shape, name='reshape_tf_matrix')
+            
+            if (K+T)*sequence_steps < input_seq.shape[2]:
+                target_seq = target_seq[:,:,:(K+T)*sequence_steps,:]
+                input_seq = input_seq[:,:,:(K+T)*sequence_steps,:]
+                maps = maps[:,:,:(K+T)*sequence_steps+1,:]
+                tf_matrix = tf_matrix[:(K+T)*sequence_steps,:,:]
 
-            return input_seq, target_seq, maps, tf_matrix
+            return target_seq, input_seq, maps, tf_matrix
 
-        dataset = tf.data.TFRecordDataset([data_path_scratch + tfrecordname + '.tfrecord'])
-        #tfrecordsLoc = data_path_scratch + "tfrecords/"
-        #files = tf.data.Dataset.list_files(tfrecordsLoc + "*.tfrecord").shuffle(len(trainfiles))
-        #dataset = files.interleave(lambda x: tf.data.TFRecordDataset(x).prefetch(100),cycle_length=200)
-        #map trainfiles to numbers by extracting last part
-        dataset = dataset.map(_parse_function, num_parallel_calls=64)
+        tfrecordsLoc = data_path_scratch + tfrecordname
+        if os.path.isdir(tfrecordsLoc):
+            num_records = len(os.listdir(tfrecordsLoc))
+            print("Loading from directory. " + str(num_records) + " tfRecords found.")
+            files = tf.data.Dataset.list_files(tfrecordsLoc + "/" + "*.tfrecord").shuffle(num_records)
+            dataset = files.apply(
+                tf.contrib.data.parallel_interleave(lambda x: tf.data.TFRecordDataset(x, num_parallel_reads=256, buffer_size=8*1024*1024),cycle_length=32, sloppy=True))
+        else:
+            print("Loading from single tfRecord...")
+            dataset = tf.data.TFRecordDataset([tfrecordsLoc + '.tfrecord'])
+        dataset = dataset.map(_parse_function, num_parallel_calls=128)
         #shuffle and enhance dataset by num_iter amount
-        dataset = dataset.shuffle(1000).repeat(num_iter) #initially 10k but too much memory, process is killed
+        #dataset = dataset.repeat() #repeat indef. old version: dataset.repeat(num_iter)
+        dataset = dataset.apply(tf.contrib.data.shuffle_and_repeat(1000))
         dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
-        dataset = dataset.prefetch(num_gpu*2)
-            #iterator = dataset.make_one_shot_iterator()
-            #seq_batch, input_batch, map_batch, transformation_batch = iterator.get_next()
-            #return seq_batch, input_batch, map_batch, transformation_batch
+        #dataset = dataset.batch(batch_size)
+        dataset = dataset.prefetch(num_gpu*128)
+        
 
         print("Setup optimizer...")
         #g_optim = tf.train.AdamOptimizer(lr_G, beta1=0.5).minimize(alpha * model.L_img, var_list=model.g_vars)
@@ -201,17 +227,20 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                       gpu=-1, useGAN=(beta != 0), useSharpen=useSharpen) #gpu dummy value
 
         
-        input_shape = [batch_size*num_gpu, model.image_size[0],model.image_size[1], sequence_steps * (K + T), model.c_dim + 1]
-        motion_map_shape = [batch_size*num_gpu, model.image_size[0],model.image_size[1], sequence_steps * (K + T) + model.maps_offset, 2] #last arg. motion_map_dims=2
-        target_shape = [batch_size*num_gpu, model.image_size[0],model.image_size[1], sequence_steps * (K + T), model.c_dim + 1]  # +occlusion map for cutting out the gradients
-        ego_motion_shape = [batch_size*num_gpu, sequence_steps * (K + T), 3, 8]
+        input_shape = [batch_size, model.image_size[0],model.image_size[1], sequence_steps * (K + T), model.c_dim + 1]
+        motion_map_shape = [batch_size, model.image_size[0],model.image_size[1], sequence_steps * (K + T) + model.maps_offset, 2] #last arg. motion_map_dims=2
+        target_shape = [batch_size, model.image_size[0],model.image_size[1], sequence_steps * (K + T), model.c_dim + 1]  # +occlusion map for cutting out the gradients
+        ego_motion_shape = [batch_size, sequence_steps * (K + T), 3, 8]
 
         model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
         
         #create iterator
         iterator = dataset.make_initializable_iterator()
+        # Create saveable object from iterator.
+        #saveable = tf.contrib.data.make_saveable_from_iterator(iterator)
+        # Save the iterator state by adding it to the saveable objects collection.
+        #tf.add_to_collection(tf.GraphKeys.SAVEABLE_OBJECTS, saveable)
 
-        model.saver = tf.train.Saver(max_to_keep=10)
         print("Setup GPUs...")
         print("Using "+str(num_gpu)+" GPUs...")
         # Define the network for each GPU
@@ -223,9 +252,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                             
                             # Construct the model
                             pred, trans_pred, pre_trans_pred = model.forward(input_batch, map_batch, transformation_batch,i)
-
+                            
                             # Calculate the loss for this tower   
-                            #SSE_loss, KL_loss, D_loss, G_loss, LL_loss = loss(next_batch, x_tilde, z_x_log_sigma_sq, z_x_mean, d_x, d_x_p, l_x, l_x_tilde, dim1, dim2, dim3)
                             model.target = seq_batch
                             model.motion_map_tensor = map_batch
                             model.G = tf.stack(axis=3, values=pred)
@@ -276,8 +304,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                             if beta != 0:
                                 model.d_vars = [var for var in model.t_vars if 'DIS' in var.name]
 
-                            # Calculate the losses specific to encoder, generator, decoder
-                            #L_e = tf.clip_by_value(KL_loss*KL_param + LL_loss, -100, 100)                            
+                            # Calculate the losses specific to encoder, generator, decoder                         
                             model.L_img = model.weighted_BCE_loss(model.G_masked, model.target_masked) #cross-entropy mean
                             model.L_BCE = model.L_img
                             if (beta != 0): #use GAN
@@ -295,7 +322,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                             #losses = tf.get_collection('losses', scope)
                             # Calculate the total loss for the current tower.
                             #total_loss = tf.add_n(losses, name='total_loss')
-                            
+
                             # Reuse variables for the next tower.
                             tf.get_variable_scope().reuse_variables()
                             
@@ -308,11 +335,10 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                             model.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", model.d_loss_fake)
                             
                             summaries = tf.get_collection(tf.GraphKeys.SUMMARIES, scope)
-
+                            
                             # Calculate the gradients for the batch of data on this tower.
                             curr_grad = opt_E.compute_gradients(alpha * model.L_img + beta * model.L_GAN, var_list = model.g_vars)
 
-                            print("Did the warning occur after compute_gradients?")
                             # Keep track of the gradients across all towers.
                             tower_grads.append(curr_grad)
                             
@@ -326,23 +352,25 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
         # Average the gradients
         grads = average_gradients(tower_grads)
         # Add histograms for gradients.
-        for grad, var in grads:
-            if grad is not None:
-                summaries.append(tf.summary.histogram(var.op.name + '/gradients', grad))
+        #for grad, var in grads:
+        #    if grad is not None:
+        #        summaries.append(tf.summary.histogram(var.op.name + '/gradients', grad))
         # apply the gradients with our optimizers
         train = opt_E.apply_gradients(grads, global_step=global_step)
-        print("Did the warning occure after apply_gradients?")
+
         if beta != 0:
             grads_d = average_gradients(tower_grads_d)
-            for grad, var in grads_d:
-                if grad is not None:
-                    summaries.append(tf.summary.histogram(var.op.name + '/gradients_d', grad))
+            #for grad, var in grads_d:
+            #    if grad is not None:
+            #        summaries.append(tf.summary.histogram(var.op.name + '/gradients_d', grad))
             train_d = opt_D.apply_gradients(grads_d, global_step=global_step)
 
 
         # Add histograms for trainable variables.
-        for var in tf.trainable_variables():
-            summaries.append(tf.summary.histogram(var.op.name, var))
+        #for var in tf.trainable_variables():
+        #    summaries.append(tf.summary.histogram(var.op.name, var))
+            
+        model.saver = tf.train.Saver(max_to_keep=10)
         
         
     print("Setup session...")
@@ -350,13 +378,23 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
     #with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
     #                                      log_device_placement=False,
     #                                      gpu_options=gpu_options)) as sess:
+    
+    # Create options to profile the time and memory information.
+    #builder = tf.profiler.ProfileOptionBuilder
+    #opts = builder(builder.time_and_memory()).order_by('micros').build()
+    # Create a profiling context, set constructor argument `trace_steps`,
+    # `dump_steps` to empty for explicit control.
+    #with tf.contrib.tfprof.ProfileContext('/mnt/ds3lab-scratch/lucala/train_dir',
+    #                                      trace_steps=[],
+    #                                      dump_steps=[]) as pctx:
+    
     with graph.as_default():
         init = tf.global_variables_initializer()
-        #saver = tf.train.Saver() # initialize network saver
+
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_placement=False,gpu_options=gpu_options))
 
         #sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-        
+
         sess.run(init)
 
         print("Load model...")
@@ -377,21 +415,24 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
         counter = iters + 1
         start_time = time.time()
 
-        #next_batch = input_fn()
-        
         #initial assignment, dummy value
         max_pred = min_pred = max_labels = min_labels = img_err = -1
         errD = errD_fake = errD_real = errG = 0
-        
+
         #num_iter_updated = num_iter // gpu
         while iters < num_iter:
             #print("initializing iterator...")
             sess.run(iterator.initializer)
-            
+
             #for _, batchidx in mini_batches:
             for i in range(len_trainfiles//(batch_size*num_gpu)):
+
+                # Enable tracing for next session.run.
+                #pctx.trace_next_step()
+                # Dump the profile to '/tmp/train_dir' after the step.
+                #pctx.dump_next_step()
+
                 load_start = time.time()
-                #seq_batch, input_batch, map_batch, transformation_batch = sess.run(next_batch)
                 if beta != 0 and updateD:
                     _, summary_str = sess.run([train_d, d_sum])
                     writer.add_summary(summary_str, counter)
@@ -402,13 +443,13 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                     iters_G += 1
                 iters += 1
                 print("Run done in "+str(time.time() - load_start)+"sec.")
-                
+
                 errD = model.d_loss.eval(session=sess)
                 errD_fake = model.d_loss_fake.eval(session=sess)
                 errD_real = model.d_loss_real.eval(session=sess)
                 errG = model.L_GAN.eval(session=sess)
                 img_err = model.L_img.eval(session=sess)
-                
+
                 training_models_info = ""
                 if not updateD:
                     training_models_info += ", D not trained"
@@ -434,6 +475,9 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, K,
                     "Iters: [%5d|%5d] d_fake: %.8f, d_real: %.8f, maxPred: %4.4f, minPred: %4.4f, maxLabels: %4.4f, minLabels: %4.4f"
                     % (iters_G, iters, errD_fake, errD_real, max_pred, min_pred, max_labels, min_labels)
                 )
+
+                #profiler
+                #pctx.profiler.profile_operations(options=opts)
 
                 if np.mod(counter, img_save_freq) == 1:
                     #print(np.reshape(transformation_batch[:,:,0,:6], [transformation_batch.shape[0], transformation_batch.shape[1], 2, 3]))
@@ -528,7 +572,7 @@ if __name__ == "__main__":
     parser.add_argument("--sharpen", type=bool, dest="useSharpen",
                         default=False, help="If sharpening should be used")
     parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
-                        default="BigLoop2-5", help="tfrecord name")
+                        default="BigLoop2-5_Shard_imgsze=96_seqlen=4_K=10_T=14_all", help="tfrecord name")
 
     args = parser.parse_args()
     main(**vars(args))

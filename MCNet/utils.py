@@ -168,3 +168,17 @@ def load_s1m_data(f_name, data_path, trainlist, K, T):
             vid_path = data_path + f_name
 
     return seq, diff
+
+def parse_tfrecord_name(tfrecordname):
+    values = tfrecordname.split('_')
+    #print(values)
+    dict = {}
+    # start at second index, first element contains name
+    for var in values:
+        try:
+            lhs, rhs = var.split('=')
+        except:
+            continue
+        dict[lhs] = rhs
+    
+    return int(dict['imgsze']), int(dict['seqlen']), int(dict['K']), int(dict['T'])
