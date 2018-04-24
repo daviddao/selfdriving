@@ -351,7 +351,7 @@ def input_fn(data_dir,
 
         if num_shards <= 1:
             # No GPU available or only 1 GPU.
-            return [seq_batch, input_batch, map_batch, transformation_batch], []
+            return [[seq_batch, input_batch, map_batch, transformation_batch]], []
 
         # Note that passing num=batch_size is safe here, even though
         # dataset.batch(batch_size) can, in some cases, return fewer than batch_size
@@ -484,7 +484,8 @@ def main(job_dir, data_dir, num_gpus, variable_strategy,
 
     config = cifar10_utils.RunConfig(
       session_config=sess_config, model_dir=job_dir)
-    
+    kwargs = {'save_checkpoints_steps': 2500}
+    config = config.replace(**kwargs)
     #other deprecated
     #estimator = tf.estimator.Estimator(model_fn=get_experiment_fn(data_dir, num_gpus, variable_strategy),
     #                                   config=config,
@@ -495,10 +496,10 @@ def main(job_dir, data_dir, num_gpus, variable_strategy,
 
     train_input_fn, eval_input_fn, classifier = get_experiment_fn(data_dir, num_gpus, config, params, job_dir, variable_strategy)
     
-    train_spec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=params.train_steps)
-    eval_spec = tf.estimator.EvalSpec(input_fn=eval_input_fn, steps=100, throttle_secs = 6000)
+    #train_spec = tf.estimator.TrainSpec(input_fn=train_input_fn, max_steps=params.train_steps)
+    #eval_spec = tf.estimator.EvalSpec(input_fn=eval_input_fn, steps=100, throttle_secs = 12000)
     
-    tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
+    #tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
     
     #tf.contrib.learn.learn_runner.run(
     #    get_experiment_fn(data_dir, num_gpus, variable_strategy),
@@ -506,7 +507,14 @@ def main(job_dir, data_dir, num_gpus, variable_strategy,
     #    hparams=tf.contrib.training.HParams(
     #      is_chief=config.is_chief,
     #      **hparams))
-
+    
+    
+    #might try this?
+    for i in range(params.train_steps):
+        classifier.train(input_fn=train_input_fn, steps=6000)# should be subset of training dataset
+        classifier.evaluate(input_fn=eval_input_fn, steps=500)
+    #    output = classifier.predict #create predict input fn with only a couple of samples
+    #    #draw output using old code
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
