@@ -167,7 +167,7 @@ def load_gridmap_onmove_tfrecord(f_name, image_size, frame_count, useCombinedMas
         seq[:,:,1:,0:1] = np.multiply((seq[:,:,1:,0:1] + 1) // 2, (seq[:,:,1:,3:4] + 1) / 2) * 2 - 1
     target_seq = np.concatenate([seq[:,:,1:,0:1],loss_mask], axis=3)
 
-    tf_name = f_name.split('.',-1)[0] + "_transformation.npz"
+    tf_name = ''.join(f_name.split('.',-1)[:-1]) + "_transformation.npz"
     #print(tf_name)
     try:
         tf_matrix = np.load(tf_name)['arr_0'][:frame_count-1]
