@@ -338,7 +338,7 @@ if __name__ == "__main__":
                         help="Path where the test data is stored")
     parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="BigLoop1_imgsze=96_seqlen=3_K=20_T=40_all_in_one_all",
                         help="Either folder name containing tfrecords or name of single tfrecord.")
-    parser.add_argument("--road", type=str2bool, dest="include_road", default=True,
+    parser.add_argument("--road", type=str2bool, dest="include_road", default=False,
                         help="Should road be included?")
     parser.add_argument("--num_iters", type=int, dest="num_iters", default=10,
                         help="How many files should be checked?")
@@ -348,7 +348,7 @@ if __name__ == "__main__":
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")
-    parser.add_argument("--chckpt_loc", type=str, dest="checkpoint_dir_loc", default="/mnt/ds3lab-scratch/lucala/phlippe/models/",
+    parser.add_argument("--chckpt_loc", type=str, dest="checkpoint_dir_loc", default="./models/",
                         help="Location of model checkpoint file")
 
     args = parser.parse_args()
