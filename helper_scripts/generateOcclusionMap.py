@@ -81,6 +81,7 @@ import math
 import thread
 import time
 from argparse import ArgumentParser
+from tqdm import tqdm
 
 
 
@@ -195,7 +196,7 @@ def main(in_path, out_path, overwrite, image_size, max_occluded_steps):
     calculated_frames = 0
     start_time = time.time()
 
-    for frame_path in file_list:
+    for frame_path in tqdm(file_list):
         file_number += 1
         # Prepare image and paths for calculation
         gridmap = imread(frame_path)
@@ -217,7 +218,8 @@ def main(in_path, out_path, overwrite, image_size, max_occluded_steps):
                 # Predict time for further calculation until all files are processed
                 pred_calc_time = (len(file_list)-file_number)*(time.time()-start_time)*1.0/calculated_frames
                 # Output to terminal
-                if file_number % 100 == 0:
+                """
+				if file_number % 100 == 0:
                     if calculated_frames > 100:
                         CURSOR_UP_ONE = '\x1b[1A'
                         ERASE_LINE = '\x1b[2K'
@@ -226,6 +228,7 @@ def main(in_path, out_path, overwrite, image_size, max_occluded_steps):
                     print "#"*100
                     print "Predicted calculation time: "+str(int(pred_calc_time / 3600.0))+"h "+str(int(pred_calc_time / 60.0) % 60)+"min "+str(int(pred_calc_time) % 60)+" sec"
                     print "#"*100
+				"""
         else:
             if file_number % 100 == 1:
                 # print "Skip "+frame_path+" (File number "+str(file_number)+")"

@@ -48,7 +48,7 @@ from PIL import Image
 from PIL import ImageDraw
 
 
-def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu, include_road, num_iters, seq_steps):
+def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, num_gpu, include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc):
     """
     Main function for running the test. Arguments are passed from the command line
 
@@ -60,7 +60,11 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
       T - Determines how many images the network should predict
       gpu - GPU device id
     """
-
+    
+    gpu = np.arange(num_gpu)
+    #need at least 1 gpu to run code
+    assert(num_gpu>=1 and len(gpu)==num_gpu)
+    
     print("Setup dataset...")
     #def input_fn():
     imgsze_tf, seqlen_tf, K_tf, T_tf = parse_tfrecord_name(tfrecord)
@@ -69,35 +73,18 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
     assert(K <= K_tf)
     assert(T <= T_tf)
     def _parse_function(example_proto):
-        keys_to_features = {#'input_batch_shape': tf.FixedLenFeature((), tf.int64),
-                            #'seq_batch_shape': tf.FixedLenFeature((), tf.int64),
-                            #'maps_batch_shape': tf.FixedLenFeature((), tf.int64),
-                            #'transformation_batch_shape': tf.FixedLenFeature((), tf.int64),
-                            #'image_size': tf.FixedLenFeature((), tf.int64),
-                            #'seq_steps': tf.FixedLenFeature((), tf.int64),
-                            #'K': tf.FixedLenFeature((), tf.int64),
-                            #'T': tf.FixedLenFeature((), tf.int64),
-                            'input_seq': tf.FixedLenFeature((), tf.string),
+        keys_to_features = {'input_seq': tf.FixedLenFeature((), tf.string),
                             'target_seq': tf.FixedLenFeature((), tf.string),
                             'maps': tf.FixedLenFeature((), tf.string),
                             'tf_matrix': tf.FixedLenFeature((), tf.string)}
 
         parsed_features = tf.parse_single_example(example_proto, keys_to_features)
-        #input_batch_shape = parsed_features['input_batch_shape']
-        #seq_batch_shape = parsed_features['seq_batch_shape']
-        #maps_batch_shape = parsed_features['maps_batch_shape']
-        #transformation_batch_shape = parsed_features['transformation_batch_shape']
-        #image_size_l = tf.cast(parsed_features['image_size'],tf.int32)
-        #seq_steps_l = tf.cast(parsed_features['seq_steps'],tf.int32)
-        #K_l = tf.cast(parsed_features['K'],tf.int32)
-        #T_l = tf.cast(parsed_features['T'],tf.int32)
         
         input_batch_shape = [imgsze_tf, imgsze_tf, seqlen_tf*(K_tf+T_tf), 2]
         seq_batch_shape = [imgsze_tf, imgsze_tf, seqlen_tf*(K_tf+T_tf), 2]
         maps_batch_shape = [imgsze_tf, imgsze_tf, seqlen_tf*(K_tf+T_tf)+1, 2]
         transformation_batch_shape = [seqlen_tf*(K_tf+T_tf),3,8]
-        
-        #use tf.stack(input_batch_shape) if input_batch_shape has problems
+
         input_seq = tf.reshape(tf.decode_raw(parsed_features['input_seq'], tf.float32), input_batch_shape, name='reshape_input_seq')
         target_seq = tf.reshape(tf.decode_raw(parsed_features['target_seq'], tf.float32), seq_batch_shape, name='reshape_target_seq')
         maps = tf.reshape(tf.decode_raw(parsed_features['maps'], tf.float32), maps_batch_shape, name='reshape_maps')
@@ -112,6 +99,7 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
         return target_seq, input_seq, maps, tf_matrix
 
     tfrecordsLoc = data_path + tfrecord
+    #loading from directory containing sharded tfrecords or from one tfrecord
     if os.path.isdir(tfrecordsLoc):
         num_records = len(os.listdir(tfrecordsLoc))
         print("Loading from directory. " + str(num_records) + " tfRecords found.")
@@ -121,33 +109,25 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
         print("Loading from single tfRecord...")
         dataset = tf.data.TFRecordDataset([tfrecordsLoc + '.tfrecord'])
     dataset = dataset.map(_parse_function, num_parallel_calls=64)
-    #dataset = dataset.map(lambda elems: tf.map_fn(_parse_function, elems))
-    #dataset = dataset.shuffle(1000).repeat(num_iter) #initially 10k but too much memory, process is killed
     dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(1))
     dataset = dataset.prefetch(2)
-    """
-    #f = open(data_path + "/test_data_list.txt", "r")
-    f = open(data_path + "/train_list_splitted_96x96.txt", "r")
-    testfiles = f.readlines()
-    print("Start test with " + str(len(testfiles)) + " testfiles...")
-    """
-    #c_dim = 3  # Channel input for network
 
-    #checkpoint_dir = "../models/" + prefix + "/"
-    checkpoint_dir = "/mnt/ds3lab-scratch/lucala/phlippe/models/" + prefix + "/"
+    checkpoint_dir = checkpoint_dir_loc + prefix + "/"
     best_model = None  # will pick last model
     
+    # initialize model
     model = MCNET(image_size=[image_size, image_size], batch_size=1, K=K,
               T=T, c_dim=1, checkpoint_dir=checkpoint_dir,
               iterations=seq_steps, useSELU=True, motion_map_dims=2,
-              showFutureMaps=False, useGAN=useGAN, useSharpen=useSharpen)
+              showFutureMaps=False, useGAN=useGAN, useSharpen=useSharpen, useDenseBlock=useDenseBlock, samples=samples)
 
     # Setup model (for details see mcnet_deep_tracking.py)
     model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
     iterator = dataset.make_initializable_iterator()
     with tf.variable_scope(tf.get_variable_scope()) as vscope:
         with tf.device("/gpu:%d" % gpu[0]):
-
+            
+            #fetch input
             seq_batch, input_batch, maps_batch, tf_batch = iterator.get_next()
             
             # Construct the model
@@ -207,6 +187,12 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
             tf.get_variable_scope().reuse_variables()
 
             
+    
+    if include_road:
+        prefix = prefix + "_road_"
+    else:
+        prefix = prefix + "_noRoad_"
+            
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                           log_device_placement=False,
@@ -221,10 +207,15 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
         if not exists(quant_dir):
             makedirs(quant_dir)
 
-        if model.load(sess, checkpoint_dir, best_model):
+        bool, ckpt = model.load(sess, checkpoint_dir, best_model)
+        print(checkpoint_dir)
+        if bool:
             print(" [*] Load SUCCESS")
         else:
             print(" [!] Load failed... exitting")
+            print(" [!] Checkpoint file is: "+str(ckpt))
+            if ckpt != None:
+                print(ckpt.model_checkpoint_path)
             return
 
         vid_names = []
@@ -261,12 +252,6 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
                 maps_road = maps_road*0.7 #reduce brightness
                 maps_lines = maps_lines / 2.0 #turning lines gray
 
-                
-                #print(maps_road.shape)
-                #print(occ_map_step.shape)
-                #print(sbatch.shape)
-                #print(samples_seq_step.shape)
-                #merging lines and roads, need to find better solution?
                 maps_road_with_lines = np.copy(maps_road)
                 for k in range(maps_road.shape[0]-1):
                     for l in range(maps_road.shape[1]):
@@ -287,7 +272,7 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
            
             pred_list = np.split(sbatch[:K, :, :, :], K, axis=0)
             pred_list = [np.squeeze(pred) for pred in pred_list]
-            true_list = np.split(sbatch[:K, :, :, :], K, axis=0)
+            true_list = np.split(sbatch[:K+T, :, :, :], K+T, axis=0)
             true_list = [np.squeeze(true) for true in true_list]
             for t in range(K + T):
                 
@@ -296,18 +281,20 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, gpu,
                 pred = (pred * 255).astype("uint8")
                 target = (target * 255).astype("uint8")
 
-                cpsnr[t] = measure.compare_psnr(pred, target)#probably flawed, should only contain occlusion and occupancy, no road/lines
+                cpsnr[t] = measure.compare_psnr(pred, target)
 
                 pred = draw_frame(pred, t < K)
-                target = draw_frame(target, t < K)
+                #target = draw_frame(target, t < K)
 
                 pred_list.append(pred)
-                true_list.append(target)
+                #true_list.append(target)
+                tmp = (true_list[t]*255).astype("uint8")
+                tmp = draw_frame(tmp, t < K)
 
                 cv2.imwrite(savedir + "/pred_" +
                             "{0:04d}".format(t) + ".png", pred)
                 cv2.imwrite(savedir + "/gt_" +
-                            "{0:04d}".format(t) + ".png", target)
+                            "{0:04d}".format(t) + ".png", tmp) #used to be target
 
             psnr_err = np.concatenate((psnr_err, cpsnr[None, K:]), axis=0)
             ssim_err = np.concatenate((ssim_err, cssim[None, K:]), axis=0)
@@ -338,18 +325,18 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, dest="image_size",
                         default=96, help="Pre-trained model")
     parser.add_argument("--K", type=int, dest="K",
-                        default=10, help="Number of input images")
+                        default=9, help="Number of input images")
     parser.add_argument("--T", type=int, dest="T",
-                        default=20, help="Number of steps into the future")
+                        default=10, help="Number of steps into the future")
     parser.add_argument("--useGAN", type=str2bool, dest="useGAN",
                         default=False, help="Model trained with GAN?")
     parser.add_argument("--useSharpen", type=str2bool, dest="useSharpen",
                         default=False, help="Model trained with sharpener?")
-    parser.add_argument("--gpu", type=int, nargs="+", dest="gpu", required=True,
-                        help="GPU device id")
+    parser.add_argument("--num_gpu", type=int, dest="num_gpu", required=True,
+                        help="number of gpus")
     parser.add_argument("--data_path", type=str, dest="data_path", default="/mnt/ds3lab-scratch/lucala/phlippe/dataset/",
                         help="Path where the test data is stored")
-    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="BigLoop1_imgsze=96_seqlen=4_K=10_T=20_all_in_one_all",
+    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="BigLoop1_imgsze=96_seqlen=3_K=20_T=40_all_in_one_all",
                         help="Either folder name containing tfrecords or name of single tfrecord.")
     parser.add_argument("--road", type=str2bool, dest="include_road", default=True,
                         help="Should road be included?")
@@ -357,6 +344,12 @@ if __name__ == "__main__":
                         help="How many files should be checked?")
     parser.add_argument("--seq_steps", type=int, dest="seq_steps", default=1,
                         help="Number of iterations in model.")
+    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
+                        help="Use DenseBlock (dil_conv) or VAE-distr.")
+    parser.add_argument("--samples", type=int, dest="samples", default=1,
+                        help="if using VAE how often should be sampled?")
+    parser.add_argument("--chckpt_loc", type=str, dest="checkpoint_dir_loc", default="/mnt/ds3lab-scratch/lucala/phlippe/models/",
+                        help="Location of model checkpoint file")
 
     args = parser.parse_args()
     main(**vars(args))

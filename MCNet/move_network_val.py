@@ -21,11 +21,12 @@ class MCNET(object):
                  iterations=1, d_input_frames=20, useSELU=False,
                  motion_map_dims=2, showFutureMaps=True,
                  predOcclValue=-1, useSmallSharpener=False,
-                 useGAN=False, useSharpen=False):
+                 useGAN=False, useSharpen=False, useDenseBlock=True, samples=1):
 
+        self.samples = samples
         self.batch_size = batch_size
         self.image_size = image_size
-
+        self.useDenseBlock = useDenseBlock
         self.d_input_frames = d_input_frames
         self.useSELU = useSELU
         self.maps_offset = 1 if showFutureMaps else 0
@@ -70,6 +71,7 @@ class MCNET(object):
                 motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :], motion_maps[:,:,:,timestep,:]], axis=3)
                 transform_matrix = ego_motions[:,timestep]
                 h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
+                h_motion = self.dense_block(h_motion, reuse=reuse)
                 decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
                 pre_trans_pred.append(tf.identity(decoded_output))
                 prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
@@ -88,6 +90,7 @@ class MCNET(object):
                   [self.keep_alive(pred[-1]), self.pred_occlusion_map, motion_maps[:,:,:,timestep,:]], axis=3)
                 transform_matrix = ego_motions[:,timestep]
                 h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
+                h_motion = self.dense_block(h_motion, reuse=reuse)
                 decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
                 pre_trans_pred.append(tf.identity(decoded_output))
                 prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
@@ -127,6 +130,10 @@ class MCNET(object):
         h_cell_2, self.motion_cell_state_2 = motion_cell_2(
             conv2_1, self.motion_cell_state_2, scope="Motion_LSTM_2", reuse=reuse)
 
+        return h_cell_2, res_in
+        
+        #DENSE BLOCK?
+        """
         conv3_1 = relu(dilated_conv2d(h_cell_2, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
                                                  dilation_rate=1, name='mot_dil_conv3_1', reuse=reuse), useSELU=self.useSELU)
         conv3_2 = relu(dilated_conv2d(conv3_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
@@ -141,10 +148,39 @@ class MCNET(object):
             conv3_2, self.motion_cell_state_3, scope="Motion_LSTM_3", reuse=reuse)
 
         return h_cell_3, res_in
+        """
+    
+    
+    def dense_block(self, h_comb, reuse=False):
+        if self.useDenseBlock:
+            conv3_1 = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
+                                                     dilation_rate=1, name='mot_dil_conv3_1', reuse=reuse), useSELU=self.useSELU)
+            conv3_2 = relu(dilated_conv2d(conv3_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
+                                                     dilation_rate=2, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
+            return conv3_2
+        else:
+            second_layer = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim, k_h=3, k_w=3,dilation_rate=1, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
+            with tf.variable_scope("scale", reuse=reuse):
+                scale = tf.layers.dense(second_layer, self.gf_dim, tf.nn.softplus)
+            latent = tf.contrib.distributions.MultivariateNormalDiag(second_layer, scale)
+
+            logit = latent.sample(self.samples)
+            logit = tf.reshape(logit, [-1] + second_layer.shape.as_list())
+            logit = tf.reduce_mean(logit, axis=0)
+
+            return logit
 
 
     def dec_cnn(self, h_comb, res_connect, reuse=False):
-
+        #new
+        motion_cell_3 = BasicConvLSTMCell([self.image_size[0] // 4, self.image_size[1] // 4],
+                                          [3, 3], self.gf_dim * 2)
+        if not reuse:
+            self.motion_cell_state_3 = tf.zeros([self.batch_size, self.image_size[0] // 4,
+                                                 self.image_size[1] // 4, self.gf_dim * 4])
+        h_comb, self.motion_cell_state_3 = motion_cell_3(
+            h_comb, self.motion_cell_state_3, scope="Motion_LSTM_3", reuse=reuse)
+        #---
         shapel2 = [self.batch_size, self.image_size[0] // 2,
                    self.image_size[1] // 2, self.gf_dim * 2]
         shapeout3 = [self.batch_size, self.image_size[0] // 2,
@@ -233,18 +269,20 @@ class MCNET(object):
         print(" [*] Reading checkpoints...")
 
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        """
         if ckpt is None and False:
             self.saver.restore(
                 sess, '/lhome/lucala/scripts/MCNet/models/paper_models/KTH/MCNET.model-98502')
             return True
+        """
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
             if model_name is None:
                 model_name = ckpt_name
             self.saver.restore(sess, os.path.join(checkpoint_dir, model_name))
-            return True
+            return True, ckpt
         else:
-            return False
+            return False, ckpt
 
     def add_input_to_generated_data(self, generated_data, input_data):
         combined_data = []
