@@ -28,7 +28,7 @@ def main(in_path, out_path, occlusion_folder, horizon_folder="", overwrite=False
     for image_path in tqdm(image_files):
         counter += 1
         image_number = image_path.split(
-            "/", -1)[-1].split(".", -1)[-1].split("_", -1)[1]
+            "/", -1)[-1].split(".", -1)[0].split("_", -1)[1]
         occlusion_path = os.path.join(
             occlusion_folder, "gridmap_" + image_number + "_occupancy_occlusion.pgm")
         save_path = os.path.join(

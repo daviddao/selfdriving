@@ -21,7 +21,8 @@ def main(frame_files, save_path, crop_size, scale_size, prescale=-1, overwrite=F
 		img_save_path = os.path.join(new_folder,img_path.split("/",-1)[-1])
 		
 		if suffix is not None:
-			img_save_path = img_save_path.split(".",-1)[-1] + suffix
+			p = "." if len(new_folder.split(".",-1)) > 1 else ""
+			img_save_path = p + img_save_path.split(".",-1)[-2] + suffix
 		
 		#with open(img_path, "r", encoding="latin1") as f:
 		#    print(f)

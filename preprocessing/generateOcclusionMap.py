@@ -201,7 +201,7 @@ def main(in_path, out_path, overwrite, image_size, max_occluded_steps):
         # Prepare image and paths for calculation
         gridmap = imread(frame_path)
         frame_name = frame_path.split("/",-1)[-1]
-        save_frame_name = frame_name.split(".",-1)[-1]+"_occlusion.pgm"
+        save_frame_name = frame_name.split(".",-1)[0]+"_occlusion.pgm"
         save_path = os.path.join(SAVE_DIRECTORY, save_frame_name)
 
         # If occlusion map already exists => Skip it

@@ -12,8 +12,8 @@ def main(in_path, out_path, overwrite=False):
         os.makedirs(out_path)
 
     for img_path in tqdm(horizon_maps):
-        line_save_path = os.path.join(out_path, img_path.split("/",-1)[-1].split(".",-1)[-1] + "_lines.png")
-        road_save_path = os.path.join(out_path, img_path.split("/",-1)[-1].split(".",-1)[-1] + "_road.png")
+        line_save_path = os.path.join(out_path, img_path.split("/",-1)[-1].split(".",-1)[0] + "_lines.png")
+        road_save_path = os.path.join(out_path, img_path.split("/",-1)[-1].split(".",-1)[0] + "_road.png")
         if overwrite or (not os.path.isfile(line_save_path) and not os.path.isfile(road_save_path)):
             img = imread(img_path)
             lines = (img[:,:,0] > 128) * 255
