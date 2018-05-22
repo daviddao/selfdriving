@@ -96,7 +96,7 @@ def get_gridmap_size(file_path):
     return 45.6
 
 def get_frame_number(frame_path):
-    return frame_path.split("/", -1)[-1].split(".", -1)[0].split("_", -1)[1]
+    return frame_path.split("/", -1)[-1].split(".", -1)[-1].split("_", -1)[1]
 
 
 def transform_image(odometry_dict, image, frame_number, gridmap_size, frame_rate):

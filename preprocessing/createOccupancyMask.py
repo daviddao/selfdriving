@@ -32,7 +32,7 @@ def main(in_path, out_path, thresh, occlusion_path = None, overwrite=False):
             img = draw_ego_vehicle(img)
             
             if occlusion_path is not None:
-                occl_file = os.path.join(occlusion_path, img_name.split(".",-1)[0] + "_occlusion.pgm")
+                occl_file = os.path.join(occlusion_path, img_name.split(".",-1)[-1] + "_occlusion.pgm")
                 try:
                     occl = imread(occl_file)
                     img = np.multiply(img, occl)

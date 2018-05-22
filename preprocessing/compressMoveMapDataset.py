@@ -33,7 +33,7 @@ def create_default_element(image_size, seq_length, channel_size):
 
 
 def get_frame_number(frame_path):
-    return frame_path.split("/", -1)[-1].split(".", -1)[0].split("_",-1)[1]
+    return frame_path.split("/", -1)[-1].split(".", -1)[-1].split("_",-1)[1]
 
 
 def get_correlated_file(frame_path, directory_path, suffix):
