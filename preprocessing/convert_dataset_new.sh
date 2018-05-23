@@ -62,7 +62,7 @@ FRAME_COMPOSING=2
 OVERWRITE_OCCLUSION="False"
 OVERWRITE_OCCUPMASK="False"
 OVERWRITE_OCCLIMGS="False"
-BASEDIR=./datasetNew/
+BASEDIR=./preprocessed_dataset/
 
 # Short-cuts for common datasets. If other dataset should be converted, enter random name and 
 # specify source directory and destination folder.

@@ -320,8 +320,8 @@ def str2bool(v):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--prefix", type=str, dest="prefix", required=True,
-                        help="Prefix for log/snapshot")
+    parser.add_argument("--prefix", type=str, dest="prefix",
+                        default="EncDense-BigLoop1-5_100kiter_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=4_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
     parser.add_argument("--image_size", type=int, dest="image_size",
                         default=96, help="Pre-trained model")
     parser.add_argument("--K", type=int, dest="K",
@@ -334,9 +334,9 @@ if __name__ == "__main__":
                         default=False, help="Model trained with sharpener?")
     parser.add_argument("--num_gpu", type=int, dest="num_gpu", required=True,
                         help="number of gpus")
-    parser.add_argument("--data_path", type=str, dest="data_path", default="/mnt/ds3lab-scratch/lucala/phlippe/dataset/",
+    parser.add_argument("--data_path", type=str, dest="data_path", default="../preprocessing/preprocessed_dataset/BigLoopNew/",
                         help="Path where the test data is stored")
-    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="BigLoop1_imgsze=96_seqlen=3_K=20_T=40_all_in_one_all",
+    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="all_in_one_imgsze=96_seqlen=4_K=9_T=10_all",
                         help="Either folder name containing tfrecords or name of single tfrecord.")
     parser.add_argument("--road", type=str2bool, dest="include_road", default=False,
                         help="Should road be included?")
