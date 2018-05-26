@@ -31,9 +31,8 @@ if not os.path.isfile(args.save):
         for f in tqdm(glob.glob(args.folder+"*.json")):
             #print(f)
             with open(f) as j:
-                data = json.load(j)
-                #print(data)
                 try:
+				    data = json.load(j)
                     timestamp = data['timestamp']
                     speed = data['dynamics']['speed']['value']
                     yaw_rate = data['dynamics']['yawrate']['value']

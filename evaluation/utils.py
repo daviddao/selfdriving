@@ -181,4 +181,4 @@ def parse_tfrecord_name(tfrecordname):
             continue
         dict[lhs] = rhs
     
-    return int(dict['imgsze']), int(dict['seqlen']), int(dict['K']), int(dict['T'])
+    return int(dict['imgsze']), int(dict['seqlen']), int(dict['K']), int(dict['T']), int(dict['size'])

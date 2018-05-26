@@ -67,7 +67,7 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, num_
     
     print("Setup dataset...")
     #def input_fn():
-    imgsze_tf, seqlen_tf, K_tf, T_tf = parse_tfrecord_name(tfrecord)
+    imgsze_tf, seqlen_tf, K_tf, T_tf, nr_samples = parse_tfrecord_name(tfrecord)
     assert(image_size == imgsze_tf)
     assert(seq_steps <= seqlen_tf)
     assert(K <= K_tf)
@@ -106,7 +106,7 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, num_
         files = tf.data.Dataset.list_files(tfrecordsLoc + "/" + "*.tfrecord").shuffle(num_records)
         dataset = files.interleave(lambda x: tf.data.TFRecordDataset(x).prefetch(100),cycle_length=200)
     else:
-        print("Loading from single tfRecord...")
+        print("Loading from single tfRecord. " + str(nr_samples) + " entries in tfRecord.")
         dataset = tf.data.TFRecordDataset([tfrecordsLoc + '.tfrecord'])
     dataset = dataset.map(_parse_function, num_parallel_calls=64)
     dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(1))

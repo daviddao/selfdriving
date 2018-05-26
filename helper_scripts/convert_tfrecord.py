@@ -34,8 +34,9 @@ def main(file_name, data_path, dest_path, all_in_one=True, image_size=96, seq_st
     num_samples = len(trainfiles)-1
     train_files = np.array(trainfiles)
     print(str(num_samples) + " samples")
+    info_name = "imgsze=" + str(image_size) + "_seqlen=" + str(seq_steps) + "_K=" + str(K) + "_T=" + str(T) + "_"
     if split==1.0:
-        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, np.arange(num_samples), 'all')
+        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, np.arange(num_samples), info_name + "size=" + num_samples + '_all')
     else:
         # shuffle data, then split
         shuffler = np.arange(num_samples)
@@ -43,8 +44,8 @@ def main(file_name, data_path, dest_path, all_in_one=True, image_size=96, seq_st
         split_ind = int(num_samples*split)
         train_samples = shuffler[:split_ind]
         val_samples = shuffler[split_ind:]
-        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, train_samples, 'train')
-        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, val_samples, 'val')
+        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, train_samples, info_name+'train')
+        converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, val_samples, info_name+'val')
         
     
     
@@ -54,6 +55,8 @@ def converter(train_files, data_path, dest_path, all_in_one, image_size, seq_ste
     combLoss = np.repeat(useCombinedMask, 1, axis=0)
     if not all_in_one:
         #print('Writing', filename)
+        if not os.path.exists(dest_path + 'tfrecords'):
+            os.makedirs(dest_path + 'tfrecords')
         for index in tqdm(samples):
             #filename = os.path.join(data_path, record_name + str(index) + '.tfrecord')
             base = os.path.basename(train_files[index])
@@ -143,7 +146,9 @@ def load_gridmap_onmove_tfrecord(f_name, image_size, frame_count, useCombinedMas
         input_seq - sequence of frames for the input. Includes occupancy and occlusion map [image_size, image_size, frame_count + 1, 2]
         maps - sequence of the horizon map. Channel 0 lines, channel 1 road. The shape is [image_size, image_size, frame_count, 2]
     """
+    #print(f_name)
     f_name = f_name.split('\n', -1)[0]
+    #print(f_name)
     seq = np.load(f_name)['arr_0']
     # Split [image_size, image_size, frame_count * 2] to [image_size, image_size, frame_count, 2]
     seq = np.stack(np.split(seq[:,:,:frame_count*5], frame_count, axis=2), axis=2)
@@ -164,8 +169,9 @@ def load_gridmap_onmove_tfrecord(f_name, image_size, frame_count, useCombinedMas
         seq[:,:,1:,0:1] = np.multiply((seq[:,:,1:,0:1] + 1) // 2, (seq[:,:,1:,3:4] + 1) / 2) * 2 - 1
     target_seq = np.concatenate([seq[:,:,1:,0:1],loss_mask], axis=3)
 
-    tf_name = f_name.split('.',-1)[0] + "_transformation.npz"
-    # print tf_name
+    p = "." if len(f_name.split(".",-1)) > 1 else ""
+    tf_name = p + ''.join(f_name.split('.',-1)[:-1]) + "_transformation.npz"
+    #print(tf_name)
     try:
         tf_matrix = np.load(tf_name)['arr_0'][:frame_count-1]
         tf_matrix[:,:,2] = tf_matrix[:,:,2]

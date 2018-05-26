@@ -55,6 +55,8 @@ def converter(train_files, data_path, dest_path, all_in_one, image_size, seq_ste
     combLoss = np.repeat(useCombinedMask, 1, axis=0)
     if not all_in_one:
         #print('Writing', filename)
+        if not os.path.exists(dest_path + 'tfrecords'):
+            os.makedirs(dest_path + 'tfrecords')
         for index in tqdm(samples):
             #filename = os.path.join(data_path, record_name + str(index) + '.tfrecord')
             base = os.path.basename(train_files[index])
@@ -78,10 +80,6 @@ def converter(train_files, data_path, dest_path, all_in_one, image_size, seq_ste
                 example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
-                            #'input_batch_shape': _int64_feature(input_batch_shape),
-                            #'seq_batch_shape': _int64_feature(seq_batch_shape),
-                            #'maps_batch_shape': _int64_feature(maps_batch_shape),
-                            #'transformation_batch_shape': _int64_feature(transformation_batch_shape),
                             'input_seq': _bytes_feature(input_batch),
                             'target_seq': _bytes_feature(seq_batch),
                             'maps': _bytes_feature(map_batch),
