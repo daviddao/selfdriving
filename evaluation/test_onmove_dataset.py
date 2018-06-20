@@ -103,14 +103,15 @@ def main(data_path, tfrecord, prefix, image_size, K, T, useGAN, useSharpen, num_
     if os.path.isdir(tfrecordsLoc):
         num_records = len(os.listdir(tfrecordsLoc))
         print("Loading from directory. " + str(num_records) + " tfRecords found.")
-        files = tf.data.Dataset.list_files(tfrecordsLoc + "/" + "*.tfrecord").shuffle(num_records)
-        dataset = files.interleave(lambda x: tf.data.TFRecordDataset(x).prefetch(100),cycle_length=200)
+        files = tf.data.Dataset.list_files(tfrecordsLoc + "/" + "*.tfrecord", shuffle=False) #.shuffle(num_records) no shuffling!
+        #dataset = files.interleave(lambda x: tf.data.TFRecordDataset(x),cycle_length=1)
+        dataset = files.flat_map(lambda x: tf.data.TFRecordDataset(x))
     else:
         print("Loading from single tfRecord. " + str(nr_samples) + " entries in tfRecord.")
         dataset = tf.data.TFRecordDataset([tfrecordsLoc + '.tfrecord'])
-    dataset = dataset.map(_parse_function, num_parallel_calls=64)
+    dataset = dataset.map(_parse_function) #, num_parallel_calls=64)
     dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(1))
-    dataset = dataset.prefetch(2)
+    #dataset = dataset.prefetch(2)
 
     checkpoint_dir = checkpoint_dir_loc + prefix + "/"
     best_model = None  # will pick last model
@@ -336,7 +337,7 @@ if __name__ == "__main__":
                         help="number of gpus")
     parser.add_argument("--data_path", type=str, dest="data_path", default="../preprocessing/preprocessed_dataset/BigLoopNew/",
                         help="Path where the test data is stored")
-    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="all_in_one_imgsze=96_seqlen=4_K=9_T=10_all",
+    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="all_in_one_new_shard_imgsze=96_seqlen=4_K=9_T=10_all",
                         help="Either folder name containing tfrecords or name of single tfrecord.")
     parser.add_argument("--road", type=str2bool, dest="include_road", default=False,
                         help="Should road be included?")

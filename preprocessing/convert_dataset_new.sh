@@ -212,4 +212,4 @@ else
 fi
 
 echo "Create TFRecord..."
-python convert_tfrecord.py --filename="$DESTFOLDER/""train_list_splitted_""$IMAGE_SIZE""x""$IMAGE_SIZE"".txt" --data_path="$BASEDIR" --dest_path="$DESTDIR"
+python convert_tfrecord.py --filename="$DESTFOLDER/""train_list_splitted_""$IMAGE_SIZE""x""$IMAGE_SIZE"".txt" --data_path="$BASEDIR" --dest_path="$DESTDIR" --image_size="$IMAGE_SIZE"
