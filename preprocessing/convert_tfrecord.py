@@ -34,7 +34,7 @@ def main(file_name, data_path, dest_path, all_in_one=True, image_size=96, seq_st
     num_samples = len(trainfiles)-1
     train_files = np.array(trainfiles)
     print(str(num_samples) + " samples")
-    info_name = "imgsze=" + str(image_size) + "_seqlen=" + str(seq_steps) + "_K=" + str(K) + "_T=" + str(T) + "_"
+    info_name = "imgsze=" + str(image_size) + "_seqlen=" + str(seq_steps) + "_K=" + str(K) + "_T=" + str(T) + "_size=" + str(num_samples) + "_"
     if split==1.0:
         converter(train_files, data_path, dest_path, all_in_one, image_size, seq_steps, K, T, useCombinedMask, np.arange(num_samples), info_name+'all')
     else:
@@ -80,6 +80,10 @@ def converter(train_files, data_path, dest_path, all_in_one, image_size, seq_ste
                 example = tf.train.Example(
                     features=tf.train.Features(
                         feature={
+                            #'input_batch_shape': _int64_feature(input_batch_shape),
+                            #'seq_batch_shape': _int64_feature(seq_batch_shape),
+                            #'maps_batch_shape': _int64_feature(maps_batch_shape),
+                            #'transformation_batch_shape': _int64_feature(transformation_batch_shape),
                             'input_seq': _bytes_feature(input_batch),
                             'target_seq': _bytes_feature(seq_batch),
                             'maps': _bytes_feature(map_batch),

@@ -128,7 +128,7 @@ def main(date, drive, file_loc):
 
     for curr_frame in tqdm(range(len(dataset_velo)-1)): #-1 for fencepost problem
 
-        im = Image.new('RGB', (256*6, 256*6), (127, 127, 127))
+        im = Image.new('L', (256*6, 256*6), (127))
         shift = 256*6/2
         draw = ImageDraw.Draw(im)
         #need to flip y-axis because of PIL axis definition
@@ -158,7 +158,7 @@ def main(date, drive, file_loc):
 
         im = im.rotate(90)
         im.save(file_loc + 'gridmap_'+ str(ms) +'_occupancy' + '.png')
-        imblack = Image.new('RGB', (256, 256), (0,0,0))
+        imblack = Image.new('RGB', (256, 256), (255,255,255))
         imblack.save(file_loc + 'gridmap_'+ str(ms) +'_horizon_map' + '.png')
 
         curr_oxts = dataset_oxts[curr_frame][0]
