@@ -17,8 +17,8 @@ from carla.util import print_over_same_line
 
 def run_carla_client(args):
     # Here we will run 3 episodes with 300 frames each.
-    number_of_episodes = 3
-    frames_per_episode = 300
+    number_of_episodes = 1
+    frames_per_episode = 1000
 
     # We assume the CARLA server is already waiting for a client to connect at
     # host:port. To create a connection we can use the `make_carla_client`
@@ -52,16 +52,21 @@ def run_carla_client(args):
                 # The default camera captures RGB images of the scene.
                 camera0 = Camera('CameraRGB')
                 # Set image resolution in pixels.
-                camera0.set_image_size(800, 600)
+                camera0.set_image_size(1920, 640)
                 # Set its position relative to the car in meters.
-                camera0.set_position(0.30, 0, 1.30)
+                camera0.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera0)
 
                 # Let's add another camera producing ground-truth depth.
                 camera1 = Camera('CameraDepth', PostProcessing='Depth')
-                camera1.set_image_size(800, 600)
-                camera1.set_position(0.30, 0, 1.30)
+                camera1.set_image_size(1920, 640)
+                camera1.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera1)
+                
+                camera2 = Camera('CameraSegmentation', PostProcessing='SemanticSegmentation')
+                camera2.set_image_size(1920, 640)
+                camera2.set_position(2.00, 0, 1.30)
+                settings.add_sensor(camera2)
 
                 if args.lidar:
                     lidar = Lidar('Lidar32')
@@ -142,7 +147,10 @@ def run_carla_client(args):
                             player_measurements.forward_speed))
                     for name, measurement in sensor_data.items():
                         filename = args.out_filename_format.format(episode, name, frame)
-                        measurement.save_to_disk(filename)
+                        if name == 'CameraSegmentation':
+                            measurement.save_to_disk_converted(filename)
+                        else:
+                            measurement.save_to_disk(filename)
                 else:
                     # get first values
                     yaw_old = measurements.player_measurements.transform.rotation.yaw + 180
