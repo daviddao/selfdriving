@@ -7,6 +7,7 @@ import time
 import math
 import os
 import numpy as np
+from PIL import Image, ImageDraw
 
 from carla.client import make_carla_client
 from carla.sensor import Camera, Lidar
@@ -14,11 +15,37 @@ from carla.settings import CarlaSettings
 from carla.tcp import TCPConnectionError
 from carla.util import print_over_same_line
 
+def cart2pol(x, y):
+    #rho = np.sqrt(x**2 + y**2) #only need angle
+    phi = np.arctan2(y, x)
+    #return(rho, phi)
+    return(phi)
 
+def agent2world(vehicle, angle):
+    loc_x = vehicle.transform.location.x
+    loc_y = vehicle.transform.location.y
+    ext_x = vehicle.bounding_box.extent.x / 2.0
+    ext_y = vehicle.bounding_box.extent.y / 2.0
+    bbox = np.array([[ext_x, ext_y],[ext_x, -ext_y],[-ext_x, -ext_y],[-ext_x, ext_y]]).T
+    rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
+    bbox_rot = rotMatrix.dot(bbox)
+    return bbox_rot + np.repeat(np.array([[loc_x], [loc_y]]), 4, axis=1)
+    
+def world2player(polygon, angle, player_transform):
+    rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
+    polygon -= np.repeat(np.array([[player_transform.location.x], [player_transform.location.y]]), 4, axis=1)
+    polygon = rotMatrix.dot(polygon)
+    return polygon
+    
+def player2image(polygon, shift, multiplier):
+    polygon *= multiplier
+    polygon += shift
+    return polygon
+    
 def run_carla_client(args):
     # Here we will run 3 episodes with 300 frames each.
     number_of_episodes = 1
-    frames_per_episode = 1000
+    frames_per_episode = 400
 
     # We assume the CARLA server is already waiting for a client to connect at
     # host:port. To create a connection we can use the `make_carla_client`
@@ -39,8 +66,8 @@ def run_carla_client(args):
                 settings.set(
                     SynchronousMode=args.synchronous_mode,
                     SendNonPlayerAgentsInfo=True,
-                    NumberOfVehicles=20,
-                    NumberOfPedestrians=40,
+                    NumberOfVehicles=120,
+                    NumberOfPedestrians=0,
                     WeatherId=random.choice([1, 3, 7, 8, 14]),
                     QualityLevel=args.quality_level)
                 settings.randomize_seeds()
@@ -63,10 +90,11 @@ def run_carla_client(args):
                 camera1.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera1)
                 
-                camera2 = Camera('CameraSegmentation', PostProcessing='SemanticSegmentation')
-                camera2.set_image_size(1920, 640)
-                camera2.set_position(2.00, 0, 1.30)
-                settings.add_sensor(camera2)
+                #slows down the simulation too much by processing segmentation before saving
+                #camera2 = Camera('CameraSegmentation', PostProcessing='SemanticSegmentation')
+                #camera2.set_image_size(1920, 640)
+                #camera2.set_position(2.00, 0, 1.30)
+                #settings.add_sensor(camera2)
 
                 if args.lidar:
                     lidar = Lidar('Lidar32')
@@ -107,6 +135,15 @@ def run_carla_client(args):
             file_loc = args.file_loc_format.format(episode)
             if not os.path.exists(file_loc):
                 os.makedirs(file_loc)
+                
+            file_loc_tracklets = file_loc + "/tracklets/"
+            if not os.path.exists(file_loc_tracklets):
+                os.makedirs(file_loc_tracklets)
+                
+            file_loc_grid = file_loc + "/gridmap/"
+            if not os.path.exists(file_loc_grid):
+                os.makedirs(file_loc_grid)
+                
             print('Data saved in %r' % file_loc)
 
             # Iterate every frame in the episode.
@@ -118,7 +155,7 @@ def run_carla_client(args):
                 # Print some of the measurements.
                 print_measurements(measurements)
 
-                # Save the images to disk if requested. Skip first couple of images due to setup time.
+                # Save the images to disk if requested. Skip first couple of images due to setup time, frame needs to be > 0.
                 if args.save_images_to_disk and frame > 9:
                     player_measurements = measurements.player_measurements
 
@@ -151,9 +188,42 @@ def run_carla_client(args):
                             measurement.save_to_disk_converted(filename)
                         else:
                             measurement.save_to_disk(filename)
+                            
+                    with open(file_loc_tracklets+str(round(args.start_time+measurements.game_timestamp))+".txt", "w") as text_file:
+                        im = Image.new('L', (256*6, 256*6), (127))
+                        shift = 256*6/2
+                        draw = ImageDraw.Draw(im)
+                        for agent in measurements.non_player_agents:
+                            if agent.HasField('vehicle'):
+                                vehicle = agent.vehicle
+                                angle = cart2pol(vehicle.transform.orientation.x, vehicle.transform.orientation.y)
+                                text_file.write("%d %f %f %f %f %f\n" % \
+                                 (agent.id,
+                                  vehicle.transform.location.x,
+                                  vehicle.transform.location.y,
+                                  angle,
+                                  vehicle.bounding_box.extent.x,
+                                  vehicle.bounding_box.extent.y))
+                                polygon = agent2world(vehicle, angle)
+                                polygon = world2player(polygon, math.radians(-yaw), player_measurements.transform)
+                                polygon = player2image(polygon, shift, multiplier=25)
+                                polygon = [tuple(row) for row in polygon.T]
+
+                                #p1 = (-(loc_x-ext_x)*10+shift,-(loc_y-ext_y)*10+shift)
+                                #p2 = (-(loc_x+ext_x)*10+shift,-(loc_y-ext_y)*10+shift)
+                                #p3 = (-(loc_x+ext_x)*10+shift,-(loc_y+ext_y)*10+shift)
+                                #p4 = (-(loc_x-ext_x)*10+shift,-(loc_y+ext_y)*10+shift)
+                                draw.polygon(polygon, 0, 0)
+                        im = im.resize((256,256), Image.ANTIALIAS) #if nothing visible try without resize
+                        im = im.rotate(imrotate)
+                        im.save(file_loc_grid + 'gridmap_'+ str(round(args.start_time+measurements.game_timestamp)) +'_occupancy' + '.png')
+                            
                 else:
                     # get first values
                     yaw_old = measurements.player_measurements.transform.rotation.yaw + 180
+                    imrotate = round(yaw_old)-90
+                    if imrotate < 0:
+                        imrotate += 360
                     yaw_shift = yaw_old
                     shift_x = measurements.player_measurements.transform.location.x
                     shift_y = measurements.player_measurements.transform.location.y
@@ -189,7 +259,7 @@ def run_carla_client(args):
                     # will add some noise to the steer.
 
                     control = measurements.player_measurements.autopilot_control
-                    control.steer += random.uniform(-0.1, 0.1)
+                    control.steer += random.uniform(-0.01, 0.01)
                     client.send_control(control)
 
 
