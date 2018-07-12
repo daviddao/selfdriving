@@ -156,12 +156,10 @@ def run_carla_client(args):
                 print_measurements(measurements)
 
                 # Save the images to disk if requested. Skip first couple of images due to setup time, frame needs to be > 0.
-                if args.save_images_to_disk and frame > 9:
+                if args.save_images_to_disk and frame > 19:
                     player_measurements = measurements.player_measurements
 
-                    yaw = player_measurements.transform.rotation.yaw + 180 - yaw_shift
-                    if yaw < 0:
-                        yaw = yaw + 360;
+                    yaw = ((player_measurements.transform.rotation.yaw - yaw_shift - 180) % 360) - 180
 
                     #calculate yaw_rate
                     game_time = np.int64(measurements.game_timestamp)
@@ -170,7 +168,7 @@ def run_carla_client(args):
                     if time_diff == 0:
                         yaw_rate = 0
                     else:
-                        yaw_rate = (180 - abs(abs(yaw - yaw_old) - 180))/time_diff
+                        yaw_rate = (180 - abs(abs(yaw - yaw_old) - 180))/time_diff * np.sign(yaw-yaw_old)
                     #print('time_diff: %f, yaw: %f, yaw_old: %f, yaw_rate: %f' % (time_diff, yaw, yaw_old, yaw_rate))
                     yaw_old = yaw
 
@@ -179,8 +177,8 @@ def run_carla_client(args):
                            (args.start_time+measurements.game_timestamp,
                             player_measurements.transform.location.x - shift_x,
                             player_measurements.transform.location.y - shift_y,
-                            yaw,
-                            yaw_rate,
+                            -yaw,
+                            -yaw_rate,
                             player_measurements.forward_speed))
                     for name, measurement in sensor_data.items():
                         filename = args.out_filename_format.format(episode, name, frame)
@@ -220,11 +218,9 @@ def run_carla_client(args):
                             
                 else:
                     # get first values
-                    yaw_old = measurements.player_measurements.transform.rotation.yaw + 180
-                    imrotate = round(yaw_old)-90
-                    if imrotate < 0:
-                        imrotate += 360
-                    yaw_shift = yaw_old
+                    yaw_shift = measurements.player_measurements.transform.rotation.yaw
+                    yaw_old = ((yaw_shift - 180) % 360) - 180
+                    imrotate = round(yaw_old)+90
                     shift_x = measurements.player_measurements.transform.location.x
                     shift_y = measurements.player_measurements.transform.location.y
                     prev_time = np.int64(measurements.game_timestamp)
