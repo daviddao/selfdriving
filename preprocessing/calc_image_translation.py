@@ -53,7 +53,7 @@ def get_combined_transformation_parameter(imsize, gridmap_size, frame_rate, vels
         step_yaw_diff = math.radians(yaw_rates[index] * period_duration)
         yaw_diff = yaw_diff + step_yaw_diff
         pixel_diff = vels[index] * period_duration * 1.0 / pixel_size
-        step_radius = pixel_diff / math.fabs(step_yaw_diff)
+        step_radius = pixel_diff / (math.fabs(step_yaw_diff) + 1e-6) #eps to avoid zero division
         step_y_diff = math.sin(math.fabs(step_yaw_diff)) * step_radius
         step_x_diff = (1 - math.cos(math.fabs(step_yaw_diff))) * step_radius * (-1 if step_yaw_diff < 0 else 1)
         alt_diff_y = math.cos(step_yaw_diff) * pixel_diff
@@ -62,7 +62,7 @@ def get_combined_transformation_parameter(imsize, gridmap_size, frame_rate, vels
         pixel_diff_y += step_y_diff
         pixel_diff_x =  + math.cos(step_yaw_diff) * pixel_diff_x + math.sin(step_yaw_diff) * pixel_diff_y
         pixel_diff_y =  - math.sin(step_yaw_diff) * pixel_diff_x + math.cos(step_yaw_diff) * pixel_diff_y
-        if step_y_diff / alt_diff_y > 1.5 or alt_diff_y / step_y_diff > 1.5:
+        if step_y_diff / alt_diff_y > 1.5 or alt_diff_y / (step_y_diff+1e-6) > 1.5:
             print("Velocity = "+str(vels[index]))
             print("Yaw rate = "+str(yaw_rates[index]))
             print("Radius = "+str(step_radius))
