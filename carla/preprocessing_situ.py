@@ -6,15 +6,25 @@ import math
 import os
 import numpy as np
 import PIL
+from tqdm import tqdm
+import tensorflow as tf
 from PIL import Image, ImageDraw, ImageOps
 
+dest_path = 'F:/selfdriving-data/carla_tfrecords/'
+if not os.path.exists(dest_path):
+    os.makedirs(dest_path)
+    
+prefix = 'test'
+samples_per_record = 10
+K = 9
+T = 10
 prescale=337
 crop_size=96
 image_size=96
 occup_steps=1
 seq_length=20
 step_size=5
-seq_steps=1
+seq_steps=seq_length//(K+T)
 #frame_composing=2 not supported for now, need to change code in calcImageTranslation first
 thresh = 96 #Threshold for mean of pixels over channels (between 0 and 255)
 OVERWRITE_OCCLUSION="False"
@@ -22,28 +32,45 @@ OVERWRITE_OCCUPMASK="False"
 OVERWRITE_OCCLIMGS="False"
 BASEDIR='./preprocessed_dataset/'
 
-image_buffer = []
+occupancy_buffer = []
 transformation_buffer = []
+occlusion_buffer = []
+return_clips = []
+return_transformation = []
+idnr = 0
 
 
 def main(img, yaw_rate, speed):
-    global image_buffer
+    global occupancy_buffer
+    global occlusion_buffer
     global transformation_buffer
+    global return_clips
+    global return_transformation
+    global idnr
     occupancy_img = cropAndResizeImage(img)
     occupancy_array = np.array(occupancy_img)
+    if len(occupancy_array.shape) == 3:
+        occupancy_array = np.mean(occupancy_array, axis=2)
     occlusion_array = createOcclusionMap(occupancy_array)
     occupancy_mask = createOccupancyMask(occupancy_img, occlusion_array, thresh)
-    occluded_array = createOcclusionImages(occupancy_mask, occlusion_array)
+    #occluded_array = createOcclusionImages(occupancy_mask, occlusion_array)
     transformation_matrix = calcImageTranslation(occupancy_array, yaw_rate, speed)
-    image_buffer.append(occluded_array)
+    occupancy_buffer.append(occupancy_mask)
+    occlusion_buffer.append(occlusion_array)
     transformation_buffer.append(transformation_matrix)
-    #temporary for testing
-    return occluded_array, transformation_matrix
-    #if len(image_buffer) >= seq_length:
-    #    compressMoveMapDataset()
-    #    convert_tfrecord()
-    #    del image_buffer[:step_size]
-    #    del transformation_buffer[:step_size]
+    #for testing
+    #return occupancy_mask, occlusion_array#, transformation_matrix
+    if len(occupancy_buffer) >= seq_length:
+        compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer)
+        if len(return_clips) >= samples_per_record:
+            #return return_clips
+            convert_tfrecord(return_clips)
+            idnr += 1
+            return_clips = []
+            return_transformation = []
+        del occupancy_buffer[:step_size]
+        del occlusion_buffer[:step_size]
+        del transformation_buffer[:step_size]
     
     
     
@@ -92,8 +119,6 @@ def createOcclusionMap(gridmap, max_occluded_steps=1):
         x_i = xy_grid[:, radial_index, 0]
         y_i = xy_grid[:, radial_index, 1]
 
-        # occluded_steps += np.multiply(np.ones(occluded_steps.shape, dtype=np.int32), is_occluded_array)
-        # occluded_steps = np.multiply(is_occluded_array, )
         occ_f = gridmap[y_i, x_i]
         is_occupied = (occ_f < occ_thresh_f)
         is_changed = is_occupied * (1 - is_occluded_array)
@@ -101,8 +126,7 @@ def createOcclusionMap(gridmap, max_occluded_steps=1):
         position_array[:,1] = position_array[:,1] * (1 - is_changed) + y_i * (is_changed)
         is_occluded_array = is_occluded_array + is_occupied 
         is_first_pixel = (np.absolute(position_array[:,0] - x_i) <= max_occluded_steps) * (np.absolute(position_array[:,1] - y_i) <= max_occluded_steps) * is_occupied
-        # occlusion_wo_occup = (1 - is_occluded_array) + (is_occluded_array * occlusion_wo_occup * is_occupied)
-        # occlusion_map[y_i, x_i] = occlusion_map[y_i, x_i] * (1 - (is_occluded_array * (1 - occlusion_wo_occup)))
+
         occlusion_map[y_i, x_i] = occlusion_map[y_i, x_i] * (1 - (is_occluded_array * (1 - is_first_pixel)))
 
     return occlusion_map
@@ -128,7 +152,6 @@ def draw_ego_vehicle(img):
     return img
 
 def createOcclusionImages(img, occlusion_map):
-    #occlusion_map = occlusion_path / 255.0 values probably already between 0-1
     if len(img.shape) == 2:
         img = np.reshape(img, [img.shape[0], img.shape[1], 1])
     if img.shape[2] == 1:
@@ -175,3 +198,134 @@ def get_STM_matrix(imsize, theta, dx, dy):
     a23 = dy / ((imsize - 1) / 2.0)
     M = np.array([[a11, a12, a13], [a21, a22, a23]])
     return M
+
+def create_default_element(image_size, seq_length, channel_size):
+    element = np.zeros([image_size, image_size, seq_length * channel_size], dtype=np.float32)
+    return element
+
+def read_frame(occup_map, occlusion_map):
+    #dummy values as long as no underlying road can be extracted from carla - backward comp. with NN model
+    lines_map = np.ones(shape=(occup_map.shape)) * 255
+    road_map = np.ones(shape=(occup_map.shape)) * 255
+    if len(occlusion_map.shape) == 3:
+        occlusion_map = np.mean(occlusion_map, axis=2)
+    return np.stack([occup_map*255, occlusion_map*255, lines_map, road_map, occlusion_map*255], axis=2)
+
+def read_matrix(matrix):
+    tf_matrix = np.zeros([3,8], dtype=np.float32)
+    tf_matrix[:,0:3] = matrix[:,0,:]
+    tf_matrix[:,3:6] = matrix[:,1,:]
+    return tf_matrix
+
+def normalize_frames(frames):
+    new_frames = frames.astype(np.float32)
+    new_frames //= (255 // 2)
+    new_frames -= 1
+    return new_frames
+
+def get_occupancy_diff(clip):
+    occup_clip = np.multiply((clip[:,:,::5] + 1)/2.0, (clip[:,:,4::5] + 1)/2.0)
+    occup_diff = occup_clip[:,:,:-1] - occup_clip[:,:,1:]
+    occup_diff = np.absolute(occup_diff)
+    return np.sum(occup_diff) * 1.0 / occup_diff.shape[2]
+
+def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer, 
+                           transformation_only=False, split_number = 0, split_amount = 1):
+    global return_clips
+    global return_transformation
+    max_occup_diff = 0
+    min_occup_diff = 100000
+    mean_occup_diff = 0.0
+    all_clips = [create_default_element(image_size, seq_length, 5) for i in range(seq_length)]
+    all_transformation = [np.zeros([seq_length, 3, 8], dtype=np.float32) for i in range(seq_length)]
+
+    step_offset = int(round(1.0 * step_size / split_amount * split_number))
+
+    for file_index in range(len(occupancy_buffer)):
+        frame = read_frame(occupancy_buffer[file_index], occlusion_buffer[file_index])
+        if transformation_only:
+            frame = np.zeros([1,1,1])
+        transform_matrix = read_matrix(transformation_buffer[file_index])
+
+        channel_size = frame.shape[2]
+
+        norm_frame = normalize_frames(frame)
+        for clip_index in range(len(all_clips)):
+            if not transformation_only:
+                all_clips[clip_index][:, :, clip_index * channel_size: (clip_index + 1) * channel_size] = norm_frame
+            all_transformation[clip_index][clip_index,:,:] = transform_matrix
+        if file_index >= seq_length - 1:
+            if not transformation_only:
+                occup_diff = get_occupancy_diff(all_clips[-1])
+                max_occup_diff = max(max_occup_diff, occup_diff)
+                min_occup_diff = min(min_occup_diff, occup_diff)
+                mean_occup_diff = mean_occup_diff + occup_diff
+            if transformation_only or occup_diff >= 6:
+                if not transformation_only:
+                    return_clips.append(all_clips[-1])
+                return_transformation.append(all_transformation[-1])
+            else:
+                print("Sequence not saved due to occupancy difference of " + str(occup_diff))
+
+        del all_clips[-1]
+        del all_transformation[-1]
+        all_clips.insert(0, create_default_element(image_size, seq_length, channel_size))
+        all_transformation.insert(0, np.zeros([seq_length, 3, 8], dtype=np.float32))
+        
+def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+def _bytes_feature(value):
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+def load_gridmap_onmove_tfrecord(ind, size, frame_count, useCombinedMask=False):
+    seq = return_clips[ind]
+    seq = np.stack(np.split(seq[:,:,:frame_count*5], frame_count, axis=2), axis=2)
+    if image_size < seq.shape[0]:
+        orig_size = seq.shape[0]
+        start_index = (orig_size - size) // 2
+        end_index = start_index + size
+        seq = seq[start_index:end_index,start_index:end_index]
+
+    input_seq = seq[:,:,:-1,0:2]
+    maps = seq[:,:,:,2:4]
+    if useCombinedMask:
+        loss_mask = seq[:,:,1:,4:5]
+        input_seq[:,:,:,0:1] = np.multiply((seq[:,:,:-1,4:5] + 1) // 2, (input_seq[:,:,:,0:1] + 1) // 2) * 2 - 1
+    else:
+        loss_mask = seq[:,:,1:,1:2]
+        input_seq[:,:,:,0:1] = np.multiply((seq[:,:,:-1,4:5] + 1) // 2, (input_seq[:,:,:,0:1] + 1) // 2) * 2 - 1
+        seq[:,:,1:,0:1] = np.multiply((seq[:,:,1:,0:1] + 1) // 2, (seq[:,:,1:,3:4] + 1) / 2) * 2 - 1
+    target_seq = np.concatenate([seq[:,:,1:,0:1],loss_mask], axis=3)
+
+    tf_matrix = return_transformation[ind][:frame_count-1]
+    tf_matrix[:,:,2] = tf_matrix[:,:,2]
+    tf_matrix[:,:,5] = - tf_matrix[:,:,5]
+
+    return target_seq, input_seq, maps, tf_matrix
+
+def convert_tfrecord(clips, useCombinedMask=False):
+    samples = np.arange(samples_per_record)
+    shapes = np.repeat(np.array([image_size]), 1, axis=0)
+    sequence_steps = np.repeat(np.array([1 + seq_steps * (K + T)]), 1, axis=0)
+    combLoss = np.repeat(useCombinedMask, 1, axis=0)
+    strname = "imgsze="+str(image_size)+"_seqlen="+str(seq_steps)+"_K="+str(K)+"_T="+str(T)+"_size="+str(samples_per_record)
+    prefixname = prefix + '_' + str(idnr)
+    filename = os.path.join(dest_path, prefixname + '_' + strname + '.tfrecord')
+    with tf.python_io.TFRecordWriter(filename) as writer:
+        for index in samples:
+            for f, img_sze, seq, useCM in zip([index], shapes, sequence_steps, combLoss):
+                target_seq, input_seq, maps, tf_matrix = load_gridmap_onmove_tfrecord(f, img_sze, seq, useCM)
+            seq_batch = target_seq.tostring()
+            input_batch = input_seq.tostring()
+            map_batch = maps.tostring()
+            transformation_batch = tf_matrix.tostring()
+            example = tf.train.Example(
+                features=tf.train.Features(
+                    feature={
+                        'input_seq': _bytes_feature(input_batch),
+                        'target_seq': _bytes_feature(seq_batch),
+                        'maps': _bytes_feature(map_batch),
+                        'tf_matrix': _bytes_feature(transformation_batch)
+                    }))
+            writer.write(example.SerializeToString())
