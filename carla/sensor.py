@@ -19,6 +19,7 @@ except ImportError:
     raise RuntimeError('cannot import numpy, make sure numpy package is installed.')
 
 from .transform import Transform, Translation, Rotation, Scale
+from .image_converter import depth_to_logarithmic_grayscale, labels_to_cityscapes_palette
 
 
 # ==============================================================================
@@ -32,23 +33,6 @@ Color.__new__.__defaults__ = (0, 0, 0)
 
 Point = namedtuple('Point', 'x y z color')
 Point.__new__.__defaults__ = (0.0, 0.0, 0.0, None)
-
-LABEL_COLOR_MAP = {
-    0 : [  0,   0,   0], # None         =   0u,
-    1 : [ 70,  70,  70], # Buildings    =   1u,
-    2 : [190, 153, 153], # Fences       =   2u,
-    3 : [250, 170, 160], # Other        =   3u,
-    4 : [220,  20,  60], # Pedestrians  =   4u,
-    5 : [153, 153, 153], # Poles        =   5u,
-    6 : [153, 153, 153], # RoadLines    =   6u,
-    7 : [128,  64, 128], # Roads        =   7u,
-    8 : [244,  35, 232], # Sidewalks    =   8u,
-    9 : [107, 142,  35], # Vegetation   =   9u,
-    10 : [  0,   0, 142], # Vehicles     =  10u,
-    11 : [102, 102, 156], # Walls        =  11u,
-    12 : [220, 220,   0]  # TrafficSigns =  12u,
-}
-
 
 def _append_extension(filename, ext):
     return filename if filename.lower().endswith(ext.lower()) else filename + ext
@@ -212,18 +196,6 @@ class Image(SensorData):
             os.makedirs(folder)
         image.save(filename)
 
-    def convert_segmentation(self, img):
-        size = len(LABEL_COLOR_MAP)
-        h, w, d = img.shape
-        segmented = np.zeros((h,w,d))
-        index = img[:,:,0].reshape(h*w)
-        myvalues = np.asarray(itemgetter(*index)(LABEL_COLOR_MAP))
-        segmented[:,:,0] = myvalues[:,0].reshape((h,w))
-        segmented[:,:,1] = myvalues[:,1].reshape((h,w))
-        segmented[:,:,2] = myvalues[:,2].reshape((h,w))
-                
-        return segmented
-
 
     def save_to_disk_converted(self, filename):
         """Save this image to disk (requires PIL installed)."""
@@ -240,17 +212,62 @@ class Image(SensorData):
             size=(self.width, self.height),
             data=self.raw_data,
             decoder_name='raw')
-        color = image.split()
-        image = PImage.merge("RGB", color[2::-1])
+        image = labels_to_cityscapes_palette(image)
 
-        image = np.asarray(image)
-        image = self.convert_segmentation(image)
-        image = PImage.fromarray(numpy.uint8(image))
-        
         folder = os.path.dirname(filename)
         if not os.path.isdir(folder):
             os.makedirs(folder)
         image.save(filename)
+
+    def return_rgb(self):
+        """Save this image to disk (requires PIL installed)."""
+
+        try:
+            from PIL import Image as PImage
+        except ImportError:
+            raise RuntimeError(
+                'cannot import PIL, make sure pillow package is installed')
+
+        image = PImage.frombytes(
+            mode='RGBA',
+            size=(self.width, self.height),
+            data=self.raw_data,
+            decoder_name='raw')
+        color = image.split()
+        image = PImage.merge("RGB", color[2::-1])
+
+        return np.array(image)
+
+    def return_segmentation_map(self):
+        """Save this image to disk (requires PIL installed)."""
+
+        try:
+            from PIL import Image as PImage
+        except ImportError:
+            raise RuntimeError(
+                'cannot import PIL, make sure pillow package is installed')
+
+        image = labels_to_cityscapes_palette(self)
+
+        return image
+
+    def return_depth_map(self):
+        """Save this image to disk (requires PIL installed)."""
+
+        try:
+            from PIL import Image as PImage
+        except ImportError:
+            raise RuntimeError(
+                'cannot import PIL, make sure pillow package is installed')
+
+        #image = PImage.frombytes(
+        #    mode='RGBA',
+        #    size=(self.width, self.height),
+        #    data=self.raw_data,
+        #    decoder_name='raw')
+        image = depth_to_logarithmic_grayscale(self)
+
+        return image
 
 
 class PointCloud(SensorData):
