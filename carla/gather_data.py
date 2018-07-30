@@ -42,17 +42,19 @@ def player2image(polygon, shift, multiplier):
     polygon += shift
     return polygon
     
+episode = 0
 def run_carla_client(args):
+    global episode
     # Here we will run 3 episodes with 300 frames each.
-    number_of_episodes = 1
-    frames_per_episode = 400
+    number_of_episodes = 10
+    frames_per_episode = 160
 
     # We assume the CARLA server is already waiting for a client to connect at
     # host:port. To create a connection we can use the `make_carla_client`
     # context manager, it creates a CARLA client object and starts the
     # connection. It will throw an exception if something goes wrong. The
     # context manager makes sure the connection is always cleaned up on exit.
-    with make_carla_client(args.host, args.port) as client:
+    with make_carla_client(args.host, args.port, timeout=1000) as client:
         print('CarlaClient connected')
 
         for episode in range(0, number_of_episodes):
@@ -66,7 +68,7 @@ def run_carla_client(args):
                 settings.set(
                     SynchronousMode=args.synchronous_mode,
                     SendNonPlayerAgentsInfo=True,
-                    NumberOfVehicles=120,
+                    NumberOfVehicles=200,
                     NumberOfPedestrians=0,
                     WeatherId=random.choice([1, 3, 7, 8, 14]),
                     QualityLevel=args.quality_level)
@@ -122,9 +124,16 @@ def run_carla_client(args):
             scene = client.load_settings(settings)
 
             # Choose one player start at random.
-            number_of_player_starts = len(scene.player_start_spots)
-            player_start = random.randint(0, max(0, number_of_player_starts - 1))
-
+            if args.intersection_start:
+                text_file = open("F:/selfdriving/carla/carla_intersection_locations.txt", "r")
+                player_intersection_start = text_file.read().split(' ')
+                player_start = int(player_intersection_start[random.randint(0, max(0, len(player_intersection_start) - 1))])
+                text_file.close()
+                print("Player start index="+str(player_start))
+            else:
+                number_of_player_starts = len(scene.player_start_spots)
+                player_start = random.randint(0, max(0, number_of_player_starts - 1))
+                
             # Notify the server that we want to start the episode at the
             # player_start index. This function blocks until the server is ready
             # to start the episode.
@@ -174,7 +183,7 @@ def run_carla_client(args):
 
                     with open(file_loc+"odometry_t_mus-x_m-y_m-yaw_deg-yr_degs-v_ms.txt", "a") as text_file:
                         text_file.write("%d %f %f %f %f %f\n" % \
-                           (args.start_time+measurements.game_timestamp,
+                           (round(args.start_time+measurements.game_timestamp),
                             player_measurements.transform.location.x - shift_x,
                             player_measurements.transform.location.y - shift_y,
                             -yaw,
@@ -258,7 +267,6 @@ def run_carla_client(args):
                     control.steer += random.uniform(-0.01, 0.01)
                     client.send_control(control)
 
-
 def print_measurements(measurements):
     number_of_agents = len(measurements.non_player_agents)
     player_measurements = measurements.player_measurements
@@ -295,7 +303,7 @@ def main():
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
-        default=2000,
+        default=3000,
         type=int,
         help='TCP port to listen to (default: 2000)')
     argparser.add_argument(
@@ -328,6 +336,11 @@ def main():
         dest='synchronous_mode',
         default=True,
         help='Synchronous or Asynchronous mode?')
+    argparser.add_argument(
+        '-inter', '--intersection-start',
+        dest='intersection_start',
+        default=False,
+        help='Starting position driving up to street intersection.')
 
     args = argparser.parse_args()
 

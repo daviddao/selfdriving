@@ -8,6 +8,8 @@ import math
 import os
 import numpy as np
 from PIL import Image, ImageDraw
+import preprocessing_situ
+import preprocessing_situ_all_data
 
 from carla.client import make_carla_client
 from carla.sensor import Camera, Lidar
@@ -42,7 +44,7 @@ def player2image(polygon, shift, multiplier):
     polygon += shift
     return polygon
 
-def process_odometry(measurements, yaw_shift, yaw_old):
+def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
     player_measurements = measurements.player_measurements
     yaw = ((player_measurements.transform.rotation.yaw - yaw_shift - 180) % 360) - 180
 
@@ -55,14 +57,14 @@ def process_odometry(measurements, yaw_shift, yaw_old):
     else:
         yaw_rate = (180 - abs(abs(yaw - yaw_old) - 180))/time_diff * np.sign(yaw-yaw_old)
     
-    return yaw, yaw_rate, player_measurements.forward_speed
+    return yaw, yaw_rate, player_measurements.forward_speed, prev_time
 
 def run_carla_client(args):
     # Here we will run 3 episodes with 300 frames each.
-    number_of_episodes = 1
+    number_of_episodes = 50
     frames_per_episode = 1000
 
-    with make_carla_client(args.host, args.port) as client:
+    with make_carla_client(args.host, args.port, timeout=500) as client:
         print('CarlaClient connected')
 
         for episode in range(0, number_of_episodes):
@@ -83,6 +85,17 @@ def run_carla_client(args):
                 camera0.set_image_size(1920, 640)
                 camera0.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera0)
+                
+                camera1 = Camera('CameraDepth', PostProcessing='Depth')
+                camera1.set_image_size(1920, 640)
+                camera1.set_position(2.00, 0, 1.30)
+                settings.add_sensor(camera1)
+
+                camera2 = Camera('CameraSegmentation', PostProcessing='SemanticSegmentation')
+                camera2.set_image_size(1920, 640)
+                camera2.set_position(2.00, 0, 1.30)
+                settings.add_sensor(camera2)
+
 
             else:
 
@@ -96,15 +109,20 @@ def run_carla_client(args):
             number_of_player_starts = len(scene.player_start_spots)
             player_start = random.randint(0, max(0, number_of_player_starts - 1))
 
-            print('Starting new episode at %r...' % scene.map_name)
-            client.start_episode(player_start)
-            
             # Start a new episode.
-            file_loc = args.file_loc_format.format(episode)
+            file_loc = args.file_loc
             if not os.path.exists(file_loc):
                 os.makedirs(file_loc)
                 
-            print('Data saved in %r' % file_loc)
+            preprocessing_situ_all_data.set_dest_path(file_loc)
+            
+            print('Starting new episode at %r...' % scene.map_name)
+            client.start_episode(player_start)
+            
+            prefix = str(int(round(args.start_time))) + '_' + str(episode)
+            preprocessing_situ_all_data.update_episode(prefix)
+                
+            #print('Data saved in %r' % file_loc)
 
             # Iterate every frame in the episode.
             for frame in range(0, frames_per_episode):
@@ -117,9 +135,17 @@ def run_carla_client(args):
                 if args.save_images_to_disk and frame > 19:
                     player_measurements = measurements.player_measurements
 
-                    yaw, yaw_rate, speed = process_odometry(measurements, yaw_shift, yaw_old)
+                    for name, measurement in sensor_data.items():
+                        if name == 'CameraDepth':
+                            depth = measurement.return_depth_map()
+                        if name == 'CameraSegmentation':
+                            segmentation = measurement.return_segmentation_map()
+                        if name == 'CameraRGB':
+                            rgb = measurement.return_rgb()
+                    
+                    yaw, yaw_rate, speed, prev_time = process_odometry(measurements, yaw_shift, yaw_old, prev_time)
                     #NEED TO NEGATE YAW AND YAW_RATE BEFORE PASSING TO PREPROCESSING
-                    yaw_old = yaw
+                    yaw_old = yaw                    
                     
                     im = Image.new('L', (256*6, 256*6), (127))
                     shift = 256*6/2
@@ -128,26 +154,18 @@ def run_carla_client(args):
                         if agent.HasField('vehicle'):
                             vehicle = agent.vehicle
                             angle = cart2pol(vehicle.transform.orientation.x, vehicle.transform.orientation.y)
-                            text_file.write("%d %f %f %f %f %f\n" % \
-                             (agent.id,
-                              vehicle.transform.location.x,
-                              vehicle.transform.location.y,
-                              angle,
-                              vehicle.bounding_box.extent.x,
-                              vehicle.bounding_box.extent.y))
                             polygon = agent2world(vehicle, angle)
                             polygon = world2player(polygon, math.radians(-yaw), player_measurements.transform)
                             polygon = player2image(polygon, shift, multiplier=25)
                             polygon = [tuple(row) for row in polygon.T]
 
-                            #p1 = (-(loc_x-ext_x)*10+shift,-(loc_y-ext_y)*10+shift)
-                            #p2 = (-(loc_x+ext_x)*10+shift,-(loc_y-ext_y)*10+shift)
-                            #p3 = (-(loc_x+ext_x)*10+shift,-(loc_y+ext_y)*10+shift)
-                            #p4 = (-(loc_x-ext_x)*10+shift,-(loc_y+ext_y)*10+shift)
                             draw.polygon(polygon, 0, 0)
-                    im = im.resize((256,256), Image.ANTIALIAS) #if nothing visible try without resize
+                    im = im.resize((256,256), Image.ANTIALIAS)
                     im = im.rotate(imrotate)
-                    preprocessing_situ(im, -yaw_rate, speed)
+                    if not args.all_data:
+                        preprocessing_situ.main(im, -yaw_rate, speed, episode)
+                    else:
+                        preprocessing_situ_all_data.main(im, rgb, depth, segmentation, -yaw_rate, speed)
                             
                 else:
                     # get first values
@@ -158,17 +176,6 @@ def run_carla_client(args):
                     shift_y = measurements.player_measurements.transform.location.y
                     prev_time = np.int64(measurements.game_timestamp)
 
-                # We can access the encoded data of a given image as numpy
-                # array using its "data" property. For instance, to get the
-                # depth value (normalized) at pixel X, Y
-                #
-                #     depth_array = sensor_data['CameraDepth'].data
-                #     value_at_pixel = depth_array[Y, X]
-                #
-
-                # Now we have to send the instructions to control the vehicle.
-                # If we are in synchronous mode the server will pause the
-                # simulation until we send this control.
 
                 if not args.autopilot:
 
@@ -236,10 +243,6 @@ def main():
         action='store_true',
         help='enable autopilot')
     argparser.add_argument(
-        '-l', '--lidar',
-        action='store_true',
-        help='enable Lidar')
-    argparser.add_argument(
         '-q', '--quality-level',
         choices=['Low', 'Epic'],
         type=lambda s: s.title(),
@@ -261,6 +264,16 @@ def main():
         dest='synchronous_mode',
         default=True,
         help='Synchronous or Asynchronous mode?')
+    argparser.add_argument(
+        '-d', '--data',
+        dest='all_data',
+        default=False,
+        help='Write only gridmap or also RGB/Segmentation/Depth into TFRecord?')
+    argparser.add_argument(
+        '-dp', '--dest-path',
+        dest='dest_path',
+        default='Z:/thesis/carla/',
+        help='Where to store generated data?')
 
     args = argparser.parse_args()
 
@@ -271,9 +284,7 @@ def main():
 
     args.start_time = time.time()*1000
 
-    args.file_loc_format = 'Z:/thesis/carla/run_' + str(int(round(args.start_time))) + '/episode_{:0>4d}/'
-
-    args.out_filename_format = args.file_loc_format + '{:s}/{:0>6d}'
+    args.file_loc = args.dest_path + 'tf_records/'
 
     while True:
         try:
