@@ -348,7 +348,9 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
                 curr_gif_pred.append(np.concatenate([rgb_pred[0,seq_step,:,:,:],seg_pred[0,seq_step,:,:,:],np.tile(dep_pred[0,seq_step,:,:,:],[1,1,3])],1))
                 curr_gif_gt.append(np.concatenate([rgb[0,seq_step,:,:,:],seg[0,seq_step,:,:,:],np.tile(dep[0,seq_step,:,:,:],[1,1,3])],1))
             for seq_step in range(T):
-                curr_frame.append(np.concatenate([rgb[0,K+seq_step,:,:,:],rgb_pred[0,K+seq_step,:,:,:],
+                curr_frame.append(np.concatenate([np.asarray(Image.fromarray(np.uint8(true_list[K+seq_step]*255)).resize((data_h,data_h),Image.ANTIALIAS)),
+                          np.asarray(Image.fromarray(pred_list[K*2+seq_step]).resize((data_h,data_h),Image.ANTIALIAS)),
+                          rgb[0,K+seq_step,:,:,:],rgb_pred[0,K+seq_step,:,:,:],
                           seg[0,K+seq_step,:,:,:],seg_pred[0,K+seq_step,:,:,:],
                           np.tile(dep[0,K+seq_step,:,:,:],[1,1,3]),np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
                 curr_gif_pred.append(np.concatenate([rgb_pred[0,K+seq_step,:,:,:],seg_pred[0,K+seq_step,:,:,:],np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
