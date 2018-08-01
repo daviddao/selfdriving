@@ -106,6 +106,7 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
             return_camera_rgb = []
             return_camera_segmentation = []
             return_camera_depth = []
+            return_direction = []
         del occupancy_buffer[:step_size]
         del occlusion_buffer[:step_size]
         del transformation_buffer[:step_size]
