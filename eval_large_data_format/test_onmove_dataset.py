@@ -222,7 +222,7 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
     else:
         prefix = prefix + "_noRoad_"
 
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.0)
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
                                           log_device_placement=False,
                                           gpu_options=gpu_options)) as sess:
@@ -377,7 +377,7 @@ def str2bool(v):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--prefix", type=str, dest="prefix",
-                        default="EncDense-BigLoop1-5_100kiter_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=4_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
+                        default="VAE_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
     parser.add_argument("--image_size", type=int, dest="image_size",
                         default=96, help="Pre-trained model")
     parser.add_argument("--K", type=int, dest="K",
@@ -390,21 +390,21 @@ if __name__ == "__main__":
                         default=False, help="Model trained with sharpener?")
     parser.add_argument("--num_gpu", type=int, dest="num_gpu", required=True,
                         help="number of gpus")
-    parser.add_argument("--data_path", type=str, dest="data_path", default="../preprocessing/preprocessed_dataset/BigLoopNew/",
+    parser.add_argument("--data_path", type=str, dest="data_path", default="./tfrecords/",
                         help="Path where the test data is stored")
-    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="all_in_one_new_shard_imgsze=96_seqlen=4_K=9_T=10_all",
+    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="evaldata_imgsze=96_fc=20_datasze=240x80_seqlen=1_K=9_T=10_size=20",
                         help="Either folder name containing tfrecords or name of single tfrecord.")
     parser.add_argument("--road", type=str2bool, dest="include_road", default=False,
                         help="Should road be included?")
-    parser.add_argument("--num_iters", type=int, dest="num_iters", default=10,
+    parser.add_argument("--num_iters", type=int, dest="num_iters", default=20,
                         help="How many files should be checked?")
     parser.add_argument("--seq_steps", type=int, dest="seq_steps", default=1,
                         help="Number of iterations in model.")
-    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
+    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=False,
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")
-    parser.add_argument("--chckpt_loc", type=str, dest="checkpoint_dir_loc", default="./models/",
+    parser.add_argument("--chckpt_loc", type=str, dest="checkpoint_dir_loc", default="./model/",
                         help="Location of model checkpoint file")
     parser.add_argument("--data_w", type=int, dest="data_w",
                         default=240, help="rgb/seg/depth image width size")

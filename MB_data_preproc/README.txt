@@ -16,8 +16,10 @@ running preprocessing code:
      --storage-loc=<location for folder containing tfRecords>
      --prefix=<string prepended to tfRecord name> (optional)
 
+important note: the first section of the tfRecord name string can be changed,
+  but DO NOT change the rest as the string is parsed for information.
 
-Additional info. the conversion currently goes through the data as follows:
+additional info. the conversion currently goes through the data as follows:
   - after reading 20 frames bundles them into one sequence
   - discards the first 5 frames and reuses the other 15 frames together with
     5 new frames for the next sequence (5 frame step_size)
