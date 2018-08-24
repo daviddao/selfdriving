@@ -54,7 +54,7 @@ def run_carla_client(args):
     # context manager, it creates a CARLA client object and starts the
     # connection. It will throw an exception if something goes wrong. The
     # context manager makes sure the connection is always cleaned up on exit.
-    with make_carla_client(args.host, args.port, timeout=1000) as client:
+    with make_carla_client(args.host, args.port, timeout=500) as client:
         print('CarlaClient connected')
 
         for episode in range(0, number_of_episodes):
@@ -69,7 +69,7 @@ def run_carla_client(args):
                     SynchronousMode=args.synchronous_mode,
                     SendNonPlayerAgentsInfo=True,
                     NumberOfVehicles=200,
-                    NumberOfPedestrians=0,
+                    NumberOfPedestrians=100,
                     WeatherId=random.choice([1, 3, 7, 8, 14]),
                     QualityLevel=args.quality_level)
                 settings.randomize_seeds()
@@ -201,17 +201,17 @@ def run_carla_client(args):
                         shift = 256*6/2
                         draw = ImageDraw.Draw(im)
                         for agent in measurements.non_player_agents:
-                            if agent.HasField('vehicle'):
-                                vehicle = agent.vehicle
-                                angle = cart2pol(vehicle.transform.orientation.x, vehicle.transform.orientation.y)
+                            if agent.HasField('vehicle') or agent.HasField('pedestrian'):
+                                participant = agent.vehicle if agent.HasField('vehicle') else agent.pedestrian
+                                angle = cart2pol(participant.transform.orientation.x, participant.transform.orientation.y)
                                 text_file.write("%d %f %f %f %f %f\n" % \
                                  (agent.id,
-                                  vehicle.transform.location.x,
-                                  vehicle.transform.location.y,
+                                  participant.transform.location.x,
+                                  participant.transform.location.y,
                                   angle,
-                                  vehicle.bounding_box.extent.x,
-                                  vehicle.bounding_box.extent.y))
-                                polygon = agent2world(vehicle, angle)
+                                  participant.bounding_box.extent.x,
+                                  participant.bounding_box.extent.y))
+                                polygon = agent2world(participant, angle)
                                 polygon = world2player(polygon, math.radians(-yaw), player_measurements.transform)
                                 polygon = player2image(polygon, shift, multiplier=25)
                                 polygon = [tuple(row) for row in polygon.T]
@@ -303,7 +303,7 @@ def main():
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
-        default=3000,
+        default=2000,
         type=int,
         help='TCP port to listen to (default: 2000)')
     argparser.add_argument(

@@ -61,10 +61,10 @@ def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
 
 def run_carla_client(args):
     # Here we will run 3 episodes with 300 frames each.
-    number_of_episodes = 50
-    frames_per_episode = 1000
+    number_of_episodes = 100
+    frames_per_episode = 500
 
-    with make_carla_client(args.host, args.port, timeout=500) as client:
+    with make_carla_client(args.host, args.port, timeout=100000) as client:
         print('CarlaClient connected')
 
         for episode in range(0, number_of_episodes):
@@ -75,8 +75,8 @@ def run_carla_client(args):
                 settings.set(
                     SynchronousMode=args.synchronous_mode,
                     SendNonPlayerAgentsInfo=True,
-                    NumberOfVehicles=120,
-                    NumberOfPedestrians=0,
+                    NumberOfVehicles=150,
+                    NumberOfPedestrians=100,
                     WeatherId=random.choice([1, 3, 7, 8, 14]),
                     QualityLevel=args.quality_level)
                 settings.randomize_seeds()
@@ -120,7 +120,7 @@ def run_carla_client(args):
             client.start_episode(player_start)
             
             prefix = str(int(round(args.start_time))) + '_' + str(episode)
-            preprocessing_situ_all_data.update_episode(prefix)
+            preprocessing_situ_all_data.update_episode_reset_globals(prefix)
                 
             #print('Data saved in %r' % file_loc)
 
@@ -128,6 +128,16 @@ def run_carla_client(args):
             for frame in range(0, frames_per_episode):
 
                 measurements, sensor_data = client.read_data()
+                if args.no_misbehaviour:
+                    player_measurements = measurements.player_measurements
+                    col_cars=player_measurements.collision_vehicles
+                    col_ped=player_measurements.collision_pedestrians
+                    col_other=player_measurements.collision_other
+                    #other_lane=100 * player_measurements.intersection_otherlane
+                    #offroad=100 * player_measurements.intersection_offroad #problem on intersection
+                    if col_cars + col_ped + col_other > 0:
+                        print("MISBEHAVIOUR DETECTED! Discarding Episode... \n")
+                        break
 
                 print_measurements(measurements)
 
@@ -151,10 +161,10 @@ def run_carla_client(args):
                     shift = 256*6/2
                     draw = ImageDraw.Draw(im)
                     for agent in measurements.non_player_agents:
-                        if agent.HasField('vehicle'):
-                            vehicle = agent.vehicle
-                            angle = cart2pol(vehicle.transform.orientation.x, vehicle.transform.orientation.y)
-                            polygon = agent2world(vehicle, angle)
+                        if agent.HasField('vehicle') or agent.HasField('pedestrian'):
+                            participant = agent.vehicle if agent.HasField('vehicle') else agent.pedestrian
+                            angle = cart2pol(participant.transform.orientation.x, participant.transform.orientation.y)
+                            polygon = agent2world(participant, angle)
                             polygon = world2player(polygon, math.radians(-yaw), player_measurements.transform)
                             polygon = player2image(polygon, shift, multiplier=25)
                             polygon = [tuple(row) for row in polygon.T]
@@ -274,6 +284,11 @@ def main():
         dest='dest_path',
         default='Z:/thesis/carla/',
         help='Where to store generated data?')
+    argparser.add_argument(
+        '-n', '--no-misbehaviour',
+        dest='no_misbehaviour',
+        default=True,
+        help='Should Episode be discarded if law violation was detected?')
 
     args = argparser.parse_args()
 

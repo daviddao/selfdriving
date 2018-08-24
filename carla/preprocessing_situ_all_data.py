@@ -19,7 +19,7 @@ prescale=337
 crop_size=96
 image_size=96
 occup_steps=1
-seq_length=20
+seq_length=40
 step_size=5
 seq_steps=seq_length//(K+T)
 #frame_composing=2 not supported for now, need to change code in calcImageTranslation first
@@ -45,10 +45,42 @@ episode = 0
 def set_dest_path(path):
     global dest_path
     dest_path = path
+    if not os.path.exists(path):
+        os.makedirs(path)
 
-def update_episode(pfx):
+def update_episode_reset_globals(pfx):
     global prefix
+    global occupancy_buffer
+    global occlusion_buffer
+    global transformation_buffer
+    global return_clips
+    global return_transformation
+    global rgb_buffer
+    global depth_buffer
+    global segmentation_buffer
+    global return_camera_rgb
+    global return_camera_segmentation
+    global return_camera_depth
+    global idnr
+    global data_size
+    global direction_buffer
+    global return_direction
     prefix = pfx
+    occupancy_buffer = []
+    transformation_buffer = []
+    occlusion_buffer = []
+    return_clips = []
+    return_transformation = []
+    rgb_buffer = []
+    depth_buffer = []
+    segmentation_buffer = []
+    return_camera_rgb = []
+    return_camera_segmentation = []
+    return_camera_depth = []
+    idnr = 0
+    data_size = []
+    direction_buffer = []
+    return_direction = []
 
 def main(img, rgb, depth, segmentation, yaw_rate, speed):
     global occupancy_buffer
