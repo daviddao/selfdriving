@@ -4,6 +4,7 @@ Based on train_gridmap.py but with occlusion map as additional input of motion a
 import sys
 import time
 import imageio
+import glob
 
 import tensorflow as tf
 import scipy.misc as sm
@@ -81,7 +82,14 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         makedirs(summary_dir)
 
     num_gpu = len(gpu)
-
+    
+    try:
+        tmp = sorted(glob.glob(samples_dir+'*.png'))[-1]
+        tmp = tmp.split('/')[-1]
+        tmp = tmp.split('_')[-2]
+        prevNr = 0 if (tmp.lstrip('0') == '') else int(tmp.lstrip('0'))
+    except:
+        prevNr = 0
 
     def average_gradients(tower_grads): #taken from cifar10_multi_gpu example
         """Calculate the average gradient for each shared variable across all towers.
@@ -175,7 +183,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
             rgb_cam = rgb_cam[:(K+T)*sequence_steps,:,:,:]
             seg_cam = seg_cam[:(K+T)*sequence_steps,:,:,:]
             dep_cam = tf.expand_dims(dep_cam[:(K+T)*sequence_steps,:,:],-1)
-            direction = direction[:(K+T)*sequence_steps,:]
+            direction = tf.cast(direction[:(K+T)*sequence_steps,:], tf.float32)
 
             return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction
 
@@ -246,6 +254,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         #saveable = tf.contrib.data.make_saveable_from_iterator(iterator)
         # Save the iterator state by adding it to the saveable objects collection.
         #tf.add_to_collection(tf.GraphKeys.SAVEABLE_OBJECTS, saveable)
+        
+        #def make_prior():
+        loc = tf.zeros(model.gf_dim)
+        scale = tf.ones(model.gf_dim)
+        prior = tf.contrib.distributions.MultivariateNormalDiag(loc, scale)
+        #return tfd.MultivariateNormalDiag(loc, scale)
 
         print("Setup GPUs...")
         print("Using "+str(num_gpu)+" GPUs...")
@@ -257,27 +271,32 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             seq_batch, input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction = iterator.get_next()
 
                             # Construct the model
-                            pred, trans_pred, pre_trans_pred, rgb_pred, seg_pred, dep_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction, i)
+                            pred, gm_pred, pre_gm_pred, rgb_pred, seg_pred, dep_pred, grid_posterior, img_posterior, trans_pred, dir_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction, i)
 
                             # Calculate the loss for this tower
                             model.target = seq_batch
                             model.motion_map_tensor = map_batch
                             model.G = tf.stack(axis=3, values=pred)
-                            model.G_trans = tf.stack(axis=3, values=trans_pred)
-                            model.G_before_trans = tf.stack(axis=3, values=pre_trans_pred)
+                            model.G_trans = tf.stack(axis=3, values=gm_pred)
+                            model.G_before_trans = tf.stack(axis=3, values=pre_gm_pred)
                             model.loss_occlusion_mask = (tf.tile(seq_batch[:, :, :, :, -1:], [1, 1, 1, 1, model.c_dim]) + 1) / 2.0
                             model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
                             model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
 
+                            model.transformation_error = tf.reduce_mean(tf.squared_difference(transformation_batch, tf.transpose(trans_pred,[1,0,2,3])))
+                            model.direction_error = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf.transpose(dir_pred,[1,0,2]),labels=direction))
+                            model.odometry_error = model.direction_error + model.transformation_error
+                            
                             model.rgb = rgb_cam
                             model.seg = seg_cam
                             model.dep = dep_cam
                             model.rgb_pred = tf.stack(rgb_pred,1)
                             model.seg_pred = tf.stack(seg_pred,1)
                             model.dep_pred = tf.stack(dep_pred,1)
-                            model.rgb_diff = tf.reduce_mean(tf.square(model.rgb_pred - model.rgb))
-                            model.seg_diff = tf.reduce_mean(tf.square(model.seg_pred - model.seg))
-                            model.dep_diff = tf.reduce_mean(tf.square(model.dep_pred - model.dep))
+                            if not model.useDense:
+                                model.rgb_diff = tf.reduce_mean(tf.squared_difference(model.rgb_pred, model.rgb))
+                                model.seg_diff = tf.reduce_mean(tf.squared_difference(model.seg_pred, model.seg))
+                                model.dep_diff = tf.reduce_mean(tf.squared_difference(model.dep_pred, model.dep))
 
                             if beta != 0:
                                 start_frame = 0
@@ -322,7 +341,13 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                                 model.d_vars = [var for var in model.t_vars if 'DIS' in var.name]
 
                             # Calculate the losses specific to encoder, generator, decoder
-                            model.L_img = model.weighted_BCE_loss(model.G_masked, model.target_masked) #cross-entropy mean
+                            if model.useDense:
+                                model.L_img = -model.weighted_BCE_loss(model.G_masked, model.target_masked)
+                            else:
+                                divergence = tf.stack([tf.contrib.distributions.kl_divergence(post, prior) for post in grid_posterior],1)
+                                model.L_img = model.weighted_BCE_loss(model.G_masked, model.target_masked)
+                                model.L_img = -(tf.reduce_mean(model.L_img) - tf.reduce_mean(divergence)) #Loss = -ELBO = likelihood - divergence
+                                
                             model.L_BCE = model.L_img
                             if (beta != 0): #use GAN
                                 model.L_GAN = -tf.reduce_mean(model.D_)
@@ -334,7 +359,21 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                                 model.L_GAN = tf.constant(0.0)
 
                             model.L_p = tf.reduce_mean(tf.square(model.G_masked - model.target_masked))
-                            model.L_cam = model.rgb_diff + model.seg_diff + model.dep_diff
+                            if model.useDense: #using MSE
+                                model.L_cam = model.rgb_diff + model.seg_diff + model.dep_diff
+                                div_mean = 0
+                                L_cam_mean = model.L_cam
+                            else:
+                                rgb_loss = model.weighted_BCE_loss(model.rgb_pred,model.rgb)
+                                seg_loss = model.weighted_BCE_loss(model.seg_pred,model.seg)
+                                dep_loss = model.weighted_BCE_loss(model.dep_pred,model.dep)
+                                #model.L_cam = model.rgb_diff + model.seg_diff + model.dep_diff
+                                model.L_cam = (rgb_loss + seg_loss + dep_loss)
+                                divergence = tf.stack([tf.contrib.distributions.kl_divergence(post, prior) for post in img_posterior],1)
+                                div_mean = tf.reduce_mean(divergence)
+                                L_cam_mean = tf.reduce_mean(model.L_cam)
+                                model.L_cam = -(L_cam_mean - div_mean) #Loss = -ELBO = likelihood - divergence
+                            model.L_cam += model.odometry_error
 
                             # Assemble all of the losses for the current tower only.
                             #losses = tf.get_collection('losses', scope)
@@ -472,6 +511,10 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                 errG = model.L_GAN.eval(session=sess)
                 img_err = model.L_img.eval(session=sess)
                 cam_err = model.L_cam.eval(session=sess)
+                #image VAE losses
+                cam_div_mean_err = div_mean.eval(session=sess)
+                cam_mean_err = L_cam_mean.eval(session=sess)
+                odometry_error = model.odometry_error.eval(session=sess)
 
                 training_models_info = ""
                 if not updateD:
@@ -491,12 +534,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
 
                 print(
-                    "Iters: [%5d|%5d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, img_loss: %.8f, cam_loss: %.8f, %s"
-                    % (iters_G, iters, time.time() - start_time, errD, errG, img_err, cam_err, training_models_info)
+                    "Iters: [%5d|%5d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, gridmap_loss: %.8f, images_loss: %.8f, elbo_recon_loss: %.8f, elbo_div_loss: %.8f, %s"
+                    % (iters_G+prevNr, iters+prevNr, time.time() - start_time, errD, errG, img_err, cam_err, cam_mean_err, cam_div_mean_err, training_models_info)
                 )
                 print(
-                    "Iters: [%5d|%5d] d_fake: %.8f, d_real: %.8f, maxPred: %4.4f, minPred: %4.4f, maxLabels: %4.4f, minLabels: %4.4f"
-                    % (iters_G, iters, errD_fake, errD_real, max_pred, min_pred, max_labels, min_labels)
+                    "Iters: [%5d|%5d] d_fake: %.8f, d_real: %.8f, maxPred: %4.4f, minPred: %4.4f, maxLabels: %4.4f, minLabels: %4.4f, odometry_loss: %.8f"
+                    % (iters_G+prevNr, iters+prevNr, errD_fake, errD_real, max_pred, min_pred, max_labels, min_labels, odometry_error)
                 )
 
                 #profiler
@@ -517,7 +560,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                                   np.tile(dep[0,K+seq_step,:,:,:],[1,1,3]),np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
                     #print(np.concatenate(curr_frame,0).shape)
                     save_frame = Image.fromarray(np.uint8((np.concatenate(curr_frame,0)+1)/2*255))
-                    save_frame.save(samples_dir + "train_cam_" + str(iters).zfill(7) + "_" + str(seq_step) + ".png")
+                    save_frame.save(samples_dir + "train_cam_" + str(iters+prevNr).zfill(7)  + "_" + str(seq_step) + ".png")
                     for seq_step in range(sequence_steps * 2):
                         start_frame = seq_step // 2 * (K + T)
                         end_frame = start_frame + K
@@ -551,12 +594,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             (maps_lines, samples_seq_step, maps_road, sbatch, maps_lines, samples_trans_seq_step, maps_road, samples_pre_trans_seq_step), axis=0)
                         print("Saving sample ...")
                         save_images(samples_seq_step[:, :, :, :], [4, frame_count + 1],
-                                    samples_dir + "train_" + str(iters).zfill(7) + "_" + str(seq_step) + ".png")
+                                    samples_dir + "train_" + str(iters+prevNr).zfill(7) + "_" + str(seq_step) + ".png")
                 if np.mod(counter, 500) == 2:
                     print("#"*50)
                     print("Save model...")
                     print("#"*50)
-                    model.save(sess, checkpoint_dir, counter)
+                    model.save(sess, checkpoint_dir, counter+prevNr)
 
 
 
@@ -606,7 +649,7 @@ if __name__ == "__main__":
     parser.add_argument("--prefix", type=str, dest="model_name",
                         default="", help="Prefix appended to model name for easier search")
     parser.add_argument("--sharpen", type=str2bool, dest="useSharpen",
-                        default=False, help="If sharpening should be used")
+                        default=False, help="If sharpening should be used. DEPRECATED.")
     parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
                         default="all_in_one_new_shard_imgsze=96_seqlen=4_K=9_T=10_all", help="tfrecord name")
     parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,

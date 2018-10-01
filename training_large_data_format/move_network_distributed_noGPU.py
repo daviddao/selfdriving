@@ -499,20 +499,18 @@ class MCNET(object):
         print(" [*] Reading checkpoints...")
 
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
-        """
         if ckpt is None and False:
             self.saver.restore(
                 sess, '/lhome/lucala/scripts/MCNet/models/paper_models/KTH/MCNET.model-98502')
             return True
-        """
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
             if model_name is None:
                 model_name = ckpt_name
             self.saver.restore(sess, os.path.join(checkpoint_dir, model_name))
-            return True, ckpt
+            return True
         else:
-            return False, ckpt
+            return False
 
     def add_input_to_generated_data(self, generated_data, input_data):
         combined_data = []
