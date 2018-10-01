@@ -9,7 +9,6 @@ import imageio
 import tkinter as tk
 from PIL import Image, ImageDraw, ImageTk
 #from Tkinter.ttk import Frame, Button, Style
-#import wand
 
 import tensorflow as tf
 import scipy.misc as sm
@@ -18,7 +17,8 @@ import numpy as np
 import skimage.measure as measure
 
 import sys
-sys.path.insert(0, 'F:/selfdriving/training_large_data_format')
+path_to_evalmodel = 'F:/selfdriving/training_large_data_format'
+sys.path.insert(0, path_to_evalmodel)
 
 from move_network_distributed_noGPU import MCNET
 from utils import *
@@ -30,6 +30,7 @@ import preprocessing_situ_all_data as pp
 
 thresh = 96
 
+#global variable init
 return_clips = []
 return_transformation = []
 occupancy_buffer = []
@@ -47,6 +48,7 @@ data_w = -1
 data_h = -1
 canvas = -1
 
+#following functions are from the preprocessing script
 def create_default_element(image_size, seq_length, channel_size):
     element = np.zeros([image_size, image_size, seq_length * channel_size], dtype=np.float32)
     return element
@@ -133,6 +135,7 @@ def preprocessing(img, rgb, depth, segmentation, yaw_rate, speed):
     global return_transformation
     seq_length = K + 1
     
+    #find the direction (left,right,straight)
     if yaw_rate < -0.5: #going left
         direction_buffer.append([1,1])
     elif yaw_rate > 0.5: #going right
@@ -151,34 +154,24 @@ def preprocessing(img, rgb, depth, segmentation, yaw_rate, speed):
         occupancy_array = np.mean(occupancy_array, axis=2)
     occlusion_array = pp.createOcclusionMap(occupancy_array)
     occupancy_mask = pp.createOccupancyMask(occupancy_img, occlusion_array, thresh)
-    #occluded_array = createOcclusionImages(occupancy_mask, occlusion_array)
     transformation_matrix = pp.calcImageTranslation(occupancy_array, yaw_rate, speed)
     occupancy_buffer.append(occupancy_mask)
     occlusion_buffer.append(occlusion_array)
     transformation_buffer.append(transformation_matrix)
-    #for testing
-    #return occupancy_mask, occlusion_array#, transformation_matrix
     if len(occupancy_buffer) >= K+1:
         return_clips = []
         return_transformation = []
         compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer, seq_length)
-        #return_clips = pp.return_clips
-        #return_transformation = pp.return_transformation
-        #pp.return_clips = []
-        #pp.return_transformation = []
         return_camera_rgb = np.array(rgb_buffer)
         return_camera_segmentation = np.array(segmentation_buffer)
         return_camera_depth = np.expand_dims(np.array(depth_buffer),axis=-1)
         return_direction = np.array(direction_buffer).astype(np.uint8)
-        #print(return_direction.shape)
         tmpClips = np.stack(np.split(np.array(return_clips[0])[:,:,:seq_length*5], seq_length, axis=2), axis=2)
-        #print(tmpClips.shape)
         input_seq = tmpClips[:,:,:-1,0:2]
         maps = tmpClips[:,:,:,2:4]
         input_seq[:,:,:,0:1] = np.multiply((tmpClips[:,:,:-1,4:5] + 1) // 2, (input_seq[:,:,:,0:1] + 1) // 2) * 2 - 1
         tf_matrix = np.array(return_transformation)[0]#[:seq_length-1]
         tf_matrix = tf_matrix[:seq_length-1]
-        #print(tf_matrix.shape)
         tf_matrix[:,:,2] = tf_matrix[:,:,2]
         tf_matrix[:,:,5] = - tf_matrix[:,:,5]
         del occupancy_buffer[0]
@@ -187,8 +180,7 @@ def preprocessing(img, rgb, depth, segmentation, yaw_rate, speed):
         del rgb_buffer[0]
         del depth_buffer[0]
         del segmentation_buffer[0]
-        del direction_buffer[0] #second return_clips arg probably wrong, should be maps but want to pass back zeros
-        #RETURNS_CLIPS RETURNS 0 PROBABLY NEED TO HAVE LOCAL COMPRESSMOVEMAP FN HERE
+        del direction_buffer[0]
         return True, np.expand_dims(input_seq, axis=0), np.expand_dims(maps, axis=0), np.expand_dims(tf_matrix, axis=0), np.expand_dims(return_camera_rgb[1:], axis=0), np.expand_dims(return_camera_segmentation[1:], axis=0), np.expand_dims(return_camera_depth[1:], axis=0), np.expand_dims(return_direction[1:], axis=0)
     
     return False, -1, -1, -1, -1, -1, -1, -1
@@ -226,9 +218,8 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
     assert(T <= T_tf)
     assert(seqlen_tf == 1)
 
-    #first dim = batch_size, set to 1, needed for comp. with training model
+    #first dim = batch_size, set to 1, needed for compatibility with model
     input_batch_shape = [1, imgsze_tf, imgsze_tf, seqlen_tf*(K_tf), 2]
-    #seq_batch_shape = [1, imgsze_tf, imgsze_tf, seqlen_tf*(K_tf), 2]
     maps_batch_shape = [1, imgsze_tf, imgsze_tf, seqlen_tf*(K_tf)+1, 2]
     transformation_batch_shape = [1, seqlen_tf*(K_tf),3,8]
     rgb_batch_shape = [1, fc_tf,datasze_tf[1],datasze_tf[0],3]
@@ -247,13 +238,12 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
                   iterations=seq_steps, useSELU=True, motion_map_dims=2,
                   showFutureMaps=False, useDenseBlock=useDenseBlock, samples=samples)
 
-        # Setup model (for details see mcnet_deep_tracking.py)
+        # Setup model (for details see training_large_data_format folder)
         model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
         with tf.variable_scope(tf.get_variable_scope()) as vscope:
             with tf.device("/gpu:%d" % gpu[0]):
 
                 #fetch input
-                #seq_batch = tf.placeholder(tf.float32, shape=seq_batch_shape,name='seq_batch')
                 model.input_batch = tf.placeholder(tf.float32, shape=input_batch_shape,name='input_batch')
                 model.map_batch = tf.placeholder(tf.float32, shape=maps_batch_shape,name='map_batch')
                 model.transformation_batch = tf.placeholder(tf.float32, shape=transformation_batch_shape,name='transformation_batch')
@@ -265,30 +255,14 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
                 # Construct the model
                 pred, _, _, rgb_pred, seg_pred, dep_pred, _, _, trans_pred, dir_pred = model.forward(model.input_batch, model.map_batch, model.transformation_batch, model.rgb_cam, model.seg_cam, model.dep_cam, model.direction, 0)
 
-                #model.target = seq_batch
-                #model.motion_map_tensor = map_batch
                 model.G = tf.stack(axis=3, values=pred)
-                #model.loss_occlusion_mask = (tf.tile(seq_batch[:, :, :, :, -1:], [1, 1, 1, 1, model.c_dim]) + 1) / 2.0
-                #model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
-                #model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
 
-                #model.rgb = rgb_cam
-                #model.seg = seg_cam
-                #model.dep = dep_cam
                 model.rgb_pred = tf.stack(rgb_pred,1)
                 model.seg_pred = tf.stack(seg_pred,1)
                 model.dep_pred = tf.stack(dep_pred,1)
-                #model.rgb_diff = tf.reduce_mean(tf.square(model.rgb_pred - model.rgb))
-                #model.seg_diff = tf.reduce_mean(tf.square(model.seg_pred - model.seg))
-                #model.dep_diff = tf.reduce_mean(tf.square(model.dep_pred - model.dep))
 
                 tf.get_variable_scope().reuse_variables()
 
-    #deprecated!
-    #if include_road:
-    #    prefix = prefix + "_road_"
-    #else:
-    #    prefix = prefix + "_noRoad_"
     
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=True)
 
@@ -315,25 +289,25 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
 
 def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
     # preprocess input
+    ppTime = time.time()
     ready, gridmap, gm_map, trans_matrix, rgb, seg, dep, dir_vehicle = preprocessing(input_gridmap, rgb, dep, seg, yaw_rate, speed)
-    
+    ppTime = time.time() - ppTime
     if ready:
-        samples, rgb_pred, seg_pred, dep_pred = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred], feed_dict={model.input_batch: gridmap,
-        model.map_batch: gm_map,
-        model.transformation_batch: trans_matrix,
-        model.rgb_cam: rgb,
-        model.seg_cam: seg,
-        model.dep_cam: dep,
-        model.direction: dir_vehicle})
-
+        evTime = time.time()
+        samples, rgb_pred, seg_pred, dep_pred = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred], 
+                                                         feed_dict={model.input_batch: gridmap,
+                                                                    model.map_batch: gm_map,
+                                                                    model.transformation_batch: trans_matrix,
+                                                                    model.rgb_cam: rgb,
+                                                                    model.seg_cam: seg,
+                                                                    model.dep_cam: dep,
+                                                                    model.direction: dir_vehicle})
+        
+        evTime = time.time() - evTime
+        imTime = time.time()
+        
         samples_seq_step = (samples[0, :, :,:].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
         samples_seq_step = np.tile(samples_seq_step, [1,1,1,3])
-
-        #pred_list = []
-        #for t in range(T): #range(K+T)
-        #    pred = np.squeeze(samples_seq_step[K+t])
-        #    pred = (pred * 255).astype("uint8")
-        #    pred_list.append(pred)
 
         curr_frame = []
 
@@ -351,62 +325,14 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
                       np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
 
         npImg = np.uint8(np.concatenate(curr_frame,0))
-        #im = Image.new('RGB', npImg.shape[:2])
-        #im.close()
         
         im = Image.fromarray(npImg)
+        imTime = time.time() - imTime
+        tkTime = time.time()
         image1 = ImageTk.PhotoImage(im)
-        #label = tk.Label(root, image=image1)
-        #label.pack()
         canvas.create_image(0, 0, image=image1, anchor="nw")
-        #canvas.update_idletasks()
         canvas.update()
-
-
-def str2bool(v):
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-if __name__ == "__main__":
-    parser = ArgumentParser()
-    parser.add_argument("--prefix", type=str, dest="prefix",
-                        default="EncDense-BigLoop1-5_100kiter_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=4_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
-    parser.add_argument("--image_size", type=int, dest="image_size",
-                        default=96, help="Pre-trained model")
-    parser.add_argument("--K", type=int, dest="K",
-                        default=9, help="Number of input images")
-    parser.add_argument("--T", type=int, dest="T",
-                        default=10, help="Number of steps into the future")
-    parser.add_argument("--useGAN", type=str2bool, dest="useGAN",
-                        default=False, help="Model trained with GAN?")
-    parser.add_argument("--useSharpen", type=str2bool, dest="useSharpen",
-                        default=False, help="Model trained with sharpener?")
-    parser.add_argument("--num_gpu", type=int, dest="num_gpu", required=True,
-                        help="number of gpus")
-    parser.add_argument("--data_path", type=str, dest="data_path", default="../preprocessing/preprocessed_dataset/BigLoopNew/",
-                        help="Path where the test data is stored")
-    parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="all_in_one_new_shard_imgsze=96_seqlen=4_K=9_T=10_all",
-                        help="Either folder name containing tfrecords or name of single tfrecord.")
-    parser.add_argument("--road", type=str2bool, dest="include_road", default=False,
-                        help="Should road be included?")
-    parser.add_argument("--num_iters", type=int, dest="num_iters", default=10,
-                        help="How many files should be checked?")
-    parser.add_argument("--seq_steps", type=int, dest="seq_steps", default=1,
-                        help="Number of iterations in model.")
-    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
-                        help="Use DenseBlock (dil_conv) or VAE-distr.")
-    parser.add_argument("--samples", type=int, dest="samples", default=1,
-                        help="if using VAE how often should be sampled?")
-    parser.add_argument("--chckpt_loc", type=str, dest="checkpoint_dir_loc", default="./models/",
-                        help="Location of model checkpoint file")
-    parser.add_argument("--data_w", type=int, dest="data_w",
-                        default=240, help="rgb/seg/depth image width size")
-    parser.add_argument("--data_h", type=int, dest="data_h",
-                        default=80, help="rgb/seg/depth image width size")
-
-    args = parser.parse_args()
-    main(**vars(args))
+        tkTime = time.time() - tkTime
+        return ppTime, evTime, imTime, tkTime
+    
+    return ppTime, 0, 0, 0

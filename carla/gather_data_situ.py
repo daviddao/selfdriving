@@ -18,10 +18,8 @@ from carla.tcp import TCPConnectionError
 from carla.util import print_over_same_line
 
 def cart2pol(x, y):
-    #rho = np.sqrt(x**2 + y**2) #only need angle
     phi = np.arctan2(y, x)
-    #return(rho, phi)
-    return(phi)
+    return phi
 
 def agent2world(vehicle, angle):
     loc_x = vehicle.transform.location.x
@@ -60,7 +58,7 @@ def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
     return yaw, yaw_rate, player_measurements.forward_speed, prev_time
 
 def run_carla_client(args):
-    # Here we will run 3 episodes with 300 frames each.
+    # Here we will run 100 episodes with 500 frames each.
     number_of_episodes = 100
     frames_per_episode = 500
 
@@ -96,7 +94,6 @@ def run_carla_client(args):
                 camera2.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera2)
 
-
             else:
 
                 # Alternatively, we can load these settings from a file.
@@ -113,13 +110,16 @@ def run_carla_client(args):
             file_loc = args.file_loc
             if not os.path.exists(file_loc):
                 os.makedirs(file_loc)
-                
+            
+            #set destination path for the tfrecords
             preprocessing_situ_all_data.set_dest_path(file_loc)
             
             print('Starting new episode at %r...' % scene.map_name)
             client.start_episode(player_start)
             
             prefix = str(int(round(args.start_time))) + '_' + str(episode)
+            
+            #update the prefix of the tfrecord name and reset the globals when starting a new episode
             preprocessing_situ_all_data.update_episode_reset_globals(prefix)
                 
             #print('Data saved in %r' % file_loc)
@@ -128,20 +128,20 @@ def run_carla_client(args):
             for frame in range(0, frames_per_episode):
 
                 measurements, sensor_data = client.read_data()
+                
+                #discard episode if misbehaviour flag is set and a form of collision is detected
                 if args.no_misbehaviour:
                     player_measurements = measurements.player_measurements
                     col_cars=player_measurements.collision_vehicles
                     col_ped=player_measurements.collision_pedestrians
                     col_other=player_measurements.collision_other
-                    #other_lane=100 * player_measurements.intersection_otherlane
-                    #offroad=100 * player_measurements.intersection_offroad #problem on intersection
                     if col_cars + col_ped + col_other > 0:
                         print("MISBEHAVIOUR DETECTED! Discarding Episode... \n")
                         break
 
                 print_measurements(measurements)
 
-                # Save the images to disk if requested. Skip first couple of images due to setup time, frame needs to be > 0.
+                # Save the images to disk if requested. Skip first couple of images due to setup time.
                 if args.save_images_to_disk and frame > 19:
                     player_measurements = measurements.player_measurements
 
@@ -154,9 +154,9 @@ def run_carla_client(args):
                             rgb = measurement.return_rgb()
                     
                     yaw, yaw_rate, speed, prev_time = process_odometry(measurements, yaw_shift, yaw_old, prev_time)
-                    #NEED TO NEGATE YAW AND YAW_RATE BEFORE PASSING TO PREPROCESSING
                     yaw_old = yaw                    
                     
+                    #generate image with bounding boxes, will be transformed to gridmaps in preprocessing
                     im = Image.new('L', (256*6, 256*6), (127))
                     shift = 256*6/2
                     draw = ImageDraw.Draw(im)
@@ -168,24 +168,24 @@ def run_carla_client(args):
                             polygon = world2player(polygon, math.radians(-yaw), player_measurements.transform)
                             polygon = player2image(polygon, shift, multiplier=25)
                             polygon = [tuple(row) for row in polygon.T]
-
                             draw.polygon(polygon, 0, 0)
                     im = im.resize((256,256), Image.ANTIALIAS)
                     im = im.rotate(imrotate)
+                    
+                    #pass frame by frame to the preprocessor, it buffers these and stores them as tfrecords
                     if not args.all_data:
                         preprocessing_situ.main(im, -yaw_rate, speed, episode)
                     else:
                         preprocessing_situ_all_data.main(im, rgb, depth, segmentation, -yaw_rate, speed)
                             
                 else:
-                    # get first values
+                    # get values while frame < 20 to be used when frame == 20
                     yaw_shift = measurements.player_measurements.transform.rotation.yaw
                     yaw_old = ((yaw_shift - 180) % 360) - 180
                     imrotate = round(yaw_old)+90
                     shift_x = measurements.player_measurements.transform.location.x
                     shift_y = measurements.player_measurements.transform.location.y
                     prev_time = np.int64(measurements.game_timestamp)
-
 
                 if not args.autopilot:
 
@@ -288,7 +288,7 @@ def main():
         '-n', '--no-misbehaviour',
         dest='no_misbehaviour',
         default=True,
-        help='Should Episode be discarded if law violation was detected?')
+        help='Should Episode be discarded if violation was detected?')
 
     args = argparser.parse_args()
 

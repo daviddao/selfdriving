@@ -18,8 +18,6 @@ from carla.tcp import TCPConnectionError
 from carla.util import print_over_same_line
 
 import tf_carla_eval
-#checkpoint_dir_loc = "./model/"
-#prefix = "pure-test_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1"
 
 rangeThreshold = 100
 rangeThresholdSq = rangeThreshold**2
@@ -28,10 +26,8 @@ def participantInRange(partLoc, plLoc):
     return (((partLoc.x - plLoc.x)**2 + (partLoc.y - plLoc.y)**2) <= rangeThresholdSq)
     
 def cart2pol(x, y):
-    #rho = np.sqrt(x**2 + y**2) #only need angle
     phi = np.arctan2(y, x)
-    #return(rho, phi)
-    return(phi)
+    return phi
 
 def agent2world(vehicle, angle):
     loc_x = vehicle.transform.location.x
@@ -70,16 +66,15 @@ def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
     return yaw, yaw_rate, player_measurements.forward_speed, prev_time
 
 def run_carla_client(args):
-    # Here we will run 3 episodes with 300 frames each.
+    # Here we will run 100 episodes with 500 frames each.
     number_of_episodes = 100
     frames_per_episode = 500
     
-    #call eval file to load model
+    #call init in eval file to load model
     checkpoint_dir_loc = "./model/"
     prefix = "pure-test_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1"
     tf_carla_eval.init(checkpoint_dir_loc, prefix)
     
-
     with make_carla_client(args.host, args.port, timeout=100000) as client:
         print('CarlaClient connected')
 
@@ -111,11 +106,7 @@ def run_carla_client(args):
                 camera2.set_image_size(1920, 640)
                 camera2.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera2)
-
-
             else:
-
-                # Alternatively, we can load these settings from a file.
                 with open(args.settings_filepath, 'r') as fp:
                     settings = fp.read()
 
@@ -137,9 +128,6 @@ def run_carla_client(args):
             
             prefix = str(int(round(args.start_time))) + '_' + str(episode)
             preprocessing_situ_all_data.update_episode_reset_globals(prefix)
-                
-            #print('Data saved in %r' % file_loc)
-
             # Iterate every frame in the episode.
             for frame in range(0, frames_per_episode):
 
@@ -158,7 +146,7 @@ def run_carla_client(args):
                 """
                 #print_measurements(measurements)
 
-                # Skip first couple of images due to setup time, frame needs to be > 0.
+                # Skip first couple of images due to setup time.
                 if frame > 19:
                     player_measurements = measurements.player_measurements
 
@@ -171,13 +159,13 @@ def run_carla_client(args):
                             rgb = measurement.return_rgb()
                     
                     yaw, yaw_rate, speed, prev_time = process_odometry(measurements, yaw_shift, yaw_old, prev_time)
-                    #NEED TO NEGATE YAW AND YAW_RATE BEFORE PASSING TO PREPROCESSING
                     yaw_old = yaw                    
                     
                     im = Image.new('L', (256*6, 256*6), (127))
                     shift = 256*6/2
                     draw = ImageDraw.Draw(im)
 
+                    gmTime = time.time()
                     for agent in measurements.non_player_agents:
                         if agent.HasField('vehicle') or agent.HasField('pedestrian'):
                             participant = agent.vehicle if agent.HasField('vehicle') else agent.pedestrian
@@ -193,13 +181,14 @@ def run_carla_client(args):
 
                     im = im.resize((256,256), Image.ANTIALIAS)
                     im = im.rotate(imrotate)
+                    gmTime = time.time() - gmTime
                     if not args.all_data:
                         print("only all data supported for now")
                         exit()
                     else:
-                        start_time = time.time()
-                        tf_carla_eval.eval(im, rgb, depth, segmentation, -yaw_rate, speed)
-                        printTimePerEval(time.time() - start_time)
+                        #start_time = time.time()
+                        ppTime, evTime, imTime, tkTime = tf_carla_eval.eval(im, rgb, depth, segmentation, -yaw_rate, speed)
+                        printTimePerEval(gmTime, ppTime, evTime, imTime, tkTime)
                             
                 else:
                     # get first values
@@ -212,22 +201,13 @@ def run_carla_client(args):
 
 
                 if not args.autopilot:
-
                     client.send_control(
                         steer=random.uniform(-1.0, 1.0),
                         throttle=0.5,
                         brake=0.0,
                         hand_brake=False,
                         reverse=False)
-
                 else:
-
-                    # Together with the measurements, the server has sent the
-                    # control that the in-game autopilot would do this frame. We
-                    # can enable autopilot by sending back this control to the
-                    # server. We can modify it if wanted, here for instance we
-                    # will add some noise to the steer.
-
                     control = measurements.player_measurements.autopilot_control
                     control.steer += random.uniform(-0.01, 0.01)
                     client.send_control(control)
@@ -253,9 +233,13 @@ def print_measurements(measurements):
         agents_num=number_of_agents)
     print_over_same_line(message)
     
-def printTimePerEval(time):
-    message = 'Time per eval: {td:.3f}'
-    message = message.format(td=time)
+def printTimePerEval(time, ppTime, evTime, imTime, tkTime):
+    message = 'Time per gridmap gen: {td:.3f}, '
+    message += 'Time per preprocess: {pp:.3f}, '
+    message += 'Time per eval: {ev:.3f}, '
+    message += 'Time per image: {im:.3f}, '
+    message += 'Time per tk: {tk:.3f}'
+    message = message.format(td=time, pp=ppTime, ev=evTime, im=imTime, tk=tkTime)
     print_over_same_line(message)
 
 def main():
@@ -287,11 +271,6 @@ def main():
         default='Epic',
         help='graphics quality level, a lower level makes the simulation run considerably faster.')
     argparser.add_argument(
-        '-i', '--images-to-disk',
-        action='store_true',
-        dest='save_images_to_disk',
-        help='save images (and Lidar data if active) to disk (deprecated)')
-    argparser.add_argument(
         '-c', '--carla-settings',
         metavar='PATH',
         dest='settings_filepath',
@@ -305,8 +284,8 @@ def main():
     argparser.add_argument(
         '-d', '--data',
         dest='all_data',
-        default=False,
-        help='Write only gridmap or also RGB/Segmentation/Depth into TFRecord?')
+        default=True,
+        help='Show only gridmap or also RGB/Segmentation/Depth? (deprecated)')
     argparser.add_argument(
         '-dp', '--dest-path',
         dest='dest_path',
@@ -316,7 +295,7 @@ def main():
         '-n', '--no-misbehaviour',
         dest='no_misbehaviour',
         default=True,
-        help='Should Episode be discarded if law violation was detected?')
+        help='Should Episode be discarded if violation was detected? (deprecated)')
 
     args = argparser.parse_args()
 

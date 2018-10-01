@@ -16,10 +16,8 @@ from carla.tcp import TCPConnectionError
 from carla.util import print_over_same_line
 
 def cart2pol(x, y):
-    #rho = np.sqrt(x**2 + y**2) #only need angle
     phi = np.arctan2(y, x)
-    #return(rho, phi)
-    return(phi)
+    return phi
 
 def agent2world(vehicle, angle):
     loc_x = vehicle.transform.location.x
@@ -42,28 +40,18 @@ def player2image(polygon, shift, multiplier):
     polygon += shift
     return polygon
     
-episode = 0
 def run_carla_client(args):
-    global episode
-    # Here we will run 3 episodes with 300 frames each.
+    # Here we will run 10 episodes with 160 frames each.
     number_of_episodes = 10
     frames_per_episode = 160
 
-    # We assume the CARLA server is already waiting for a client to connect at
-    # host:port. To create a connection we can use the `make_carla_client`
-    # context manager, it creates a CARLA client object and starts the
-    # connection. It will throw an exception if something goes wrong. The
-    # context manager makes sure the connection is always cleaned up on exit.
-    with make_carla_client(args.host, args.port, timeout=500) as client:
+    with make_carla_client(args.host, args.port, timeout=10000) as client:
         print('CarlaClient connected')
 
         for episode in range(0, number_of_episodes):
 
             if args.settings_filepath is None:
 
-                # Create a CarlaSettings object. This object is a wrapper around
-                # the CarlaSettings.ini file. Here we set the configuration we
-                # want for the new episode.
                 settings = CarlaSettings()
                 settings.set(
                     SynchronousMode=args.synchronous_mode,
@@ -74,10 +62,6 @@ def run_carla_client(args):
                     QualityLevel=args.quality_level)
                 settings.randomize_seeds()
 
-                # Now we want to add a couple of cameras to the player vehicle.
-                # We will collect the images produced by these cameras every
-                # frame.
-
                 # The default camera captures RGB images of the scene.
                 camera0 = Camera('CameraRGB')
                 # Set image resolution in pixels.
@@ -86,7 +70,6 @@ def run_carla_client(args):
                 camera0.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera0)
 
-                # Let's add another camera producing ground-truth depth.
                 camera1 = Camera('CameraDepth', PostProcessing='Depth')
                 camera1.set_image_size(1920, 640)
                 camera1.set_position(2.00, 0, 1.30)
@@ -112,20 +95,16 @@ def run_carla_client(args):
                     settings.add_sensor(lidar)
 
             else:
-
                 # Alternatively, we can load these settings from a file.
                 with open(args.settings_filepath, 'r') as fp:
                     settings = fp.read()
 
-            # Now we load these settings into the server. The server replies
-            # with a scene description containing the available start spots for
-            # the player. Here we can provide a CarlaSettings object or a
-            # CarlaSettings.ini file as string.
             scene = client.load_settings(settings)
 
             # Choose one player start at random.
+            #if intersection flag is set start near and facing an intersection
             if args.intersection_start:
-                text_file = open("F:/selfdriving/carla/carla_intersection_locations.txt", "r")
+                text_file = open(args.intersection_file, "r")
                 player_intersection_start = text_file.read().split(' ')
                 player_start = int(player_intersection_start[random.randint(0, max(0, len(player_intersection_start) - 1))])
                 text_file.close()
@@ -134,9 +113,6 @@ def run_carla_client(args):
                 number_of_player_starts = len(scene.player_start_spots)
                 player_start = random.randint(0, max(0, number_of_player_starts - 1))
                 
-            # Notify the server that we want to start the episode at the
-            # player_start index. This function blocks until the server is ready
-            # to start the episode.
             print('Starting new episode at %r...' % scene.map_name)
             client.start_episode(player_start)
             
@@ -160,11 +136,21 @@ def run_carla_client(args):
 
                 # Read the data produced by the server this frame.
                 measurements, sensor_data = client.read_data()
+                
+                #discard episode if misbehaviour flag is set and a form of collision is detected
+                if args.no_misbehaviour:
+                    player_measurements = measurements.player_measurements
+                    col_cars=player_measurements.collision_vehicles
+                    col_ped=player_measurements.collision_pedestrians
+                    col_other=player_measurements.collision_other
+                    if col_cars + col_ped + col_other > 0:
+                        print("MISBEHAVIOUR DETECTED! Discarding Episode... \n")
+                        break
 
                 # Print some of the measurements.
                 print_measurements(measurements)
 
-                # Save the images to disk if requested. Skip first couple of images due to setup time, frame needs to be > 0.
+                # Save the images to disk if requested. Skip first couple of images due to setup time.
                 if args.save_images_to_disk and frame > 19:
                     player_measurements = measurements.player_measurements
 
@@ -178,9 +164,10 @@ def run_carla_client(args):
                         yaw_rate = 0
                     else:
                         yaw_rate = (180 - abs(abs(yaw - yaw_old) - 180))/time_diff * np.sign(yaw-yaw_old)
-                    #print('time_diff: %f, yaw: %f, yaw_old: %f, yaw_rate: %f' % (time_diff, yaw, yaw_old, yaw_rate))
+
                     yaw_old = yaw
 
+                    #write odometry data to .txt
                     with open(file_loc+"odometry_t_mus-x_m-y_m-yaw_deg-yr_degs-v_ms.txt", "a") as text_file:
                         text_file.write("%d %f %f %f %f %f\n" % \
                            (round(args.start_time+measurements.game_timestamp),
@@ -216,10 +203,6 @@ def run_carla_client(args):
                                 polygon = player2image(polygon, shift, multiplier=25)
                                 polygon = [tuple(row) for row in polygon.T]
 
-                                #p1 = (-(loc_x-ext_x)*10+shift,-(loc_y-ext_y)*10+shift)
-                                #p2 = (-(loc_x+ext_x)*10+shift,-(loc_y-ext_y)*10+shift)
-                                #p3 = (-(loc_x+ext_x)*10+shift,-(loc_y+ext_y)*10+shift)
-                                #p4 = (-(loc_x-ext_x)*10+shift,-(loc_y+ext_y)*10+shift)
                                 draw.polygon(polygon, 0, 0)
                         im = im.resize((256,256), Image.ANTIALIAS) #if nothing visible try without resize
                         im = im.rotate(imrotate)
@@ -234,38 +217,19 @@ def run_carla_client(args):
                     shift_y = measurements.player_measurements.transform.location.y
                     prev_time = np.int64(measurements.game_timestamp)
 
-                # We can access the encoded data of a given image as numpy
-                # array using its "data" property. For instance, to get the
-                # depth value (normalized) at pixel X, Y
-                #
-                #     depth_array = sensor_data['CameraDepth'].data
-                #     value_at_pixel = depth_array[Y, X]
-                #
-
-                # Now we have to send the instructions to control the vehicle.
-                # If we are in synchronous mode the server will pause the
-                # simulation until we send this control.
 
                 if not args.autopilot:
-
                     client.send_control(
                         steer=random.uniform(-1.0, 1.0),
                         throttle=0.5,
                         brake=0.0,
                         hand_brake=False,
                         reverse=False)
-
                 else:
-
-                    # Together with the measurements, the server has sent the
-                    # control that the in-game autopilot would do this frame. We
-                    # can enable autopilot by sending back this control to the
-                    # server. We can modify it if wanted, here for instance we
-                    # will add some noise to the steer.
-
                     control = measurements.player_measurements.autopilot_control
                     control.steer += random.uniform(-0.01, 0.01)
                     client.send_control(control)
+                    
 
 def print_measurements(measurements):
     number_of_agents = len(measurements.non_player_agents)
@@ -337,10 +301,21 @@ def main():
         default=True,
         help='Synchronous or Asynchronous mode?')
     argparser.add_argument(
-        '-inter', '--intersection-start',
-        dest='intersection_start',
-        default=False,
+        '-inter', '--intersection-file',
+        dest='intersection_file',
+        default="",
         help='Starting position driving up to street intersection.')
+    argparser.add_argument(
+        '-file', '--file-location',
+        dest='file',
+        default='Z:/thesis/carla/',
+        help='Where to save data.')
+    argparser.add_argument(
+        '-n', '--no-misbehaviour',
+        dest='no_misbehaviour',
+        default=True,
+        help='Should Episode be discarded if violation was detected?')
+    
 
     args = argparser.parse_args()
 
@@ -348,10 +323,13 @@ def main():
     logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
 
     logging.info('listening to server %s:%s', args.host, args.port)
+    
+    #if intersection file has non empty string, start from an intersection
+    args.intersection_start = True if args.intersection_file else False
 
     args.start_time = time.time()*1000
 
-    args.file_loc_format = 'Z:/thesis/carla/run_' + str(int(round(args.start_time))) + '/episode_{:0>4d}/'
+    args.file_loc_format = args.file + 'run_' + str(int(round(args.start_time))) + '/episode_{:0>4d}/'
 
     args.out_filename_format = args.file_loc_format + '{:s}/{:0>6d}'
 

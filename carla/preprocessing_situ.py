@@ -39,7 +39,6 @@ return_clips = []
 return_transformation = []
 idnr = 0
 
-
 def main(img, yaw_rate, speed):
     global occupancy_buffer
     global occlusion_buffer
@@ -53,17 +52,13 @@ def main(img, yaw_rate, speed):
         occupancy_array = np.mean(occupancy_array, axis=2)
     occlusion_array = createOcclusionMap(occupancy_array)
     occupancy_mask = createOccupancyMask(occupancy_img, occlusion_array, thresh)
-    #occluded_array = createOcclusionImages(occupancy_mask, occlusion_array)
     transformation_matrix = calcImageTranslation(occupancy_array, yaw_rate, speed)
     occupancy_buffer.append(occupancy_mask)
     occlusion_buffer.append(occlusion_array)
     transformation_buffer.append(transformation_matrix)
-    #for testing
-    #return occupancy_mask, occlusion_array#, transformation_matrix
     if len(occupancy_buffer) >= seq_length:
         compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer)
         if len(return_clips) >= samples_per_record:
-            #return return_clips
             convert_tfrecord(return_clips)
             idnr += 1
             return_clips = []
@@ -71,8 +66,6 @@ def main(img, yaw_rate, speed):
         del occupancy_buffer[:step_size]
         del occlusion_buffer[:step_size]
         del transformation_buffer[:step_size]
-    
-    
     
 def cropAndResizeImage(img):
     if prescale > 0:

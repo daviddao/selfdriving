@@ -12,18 +12,30 @@ from PIL import Image, ImageDraw, ImageOps
 
 dest_path = None
 prefix = None
+
+#SETTINGS:
+#number of samples per tfrecord, one sample equals one sequence
 samples_per_record = 20
+#number of frames used before starting prediction
 K = 9
+#number of frames to predict
 T = 10
+#values copied over from original preprocessing script
 prescale=337
 crop_size=96
 image_size=96
 occup_steps=1
-seq_length=40
+#number of frames per sequence, needs to be at least K+T+1
+seq_length=20
+#number of frames to skip between sequences
 step_size=5
+#if one tfrecord sequence holds multiple of (K+T+1) can loop over additional frames
+#equal to having multiple sequences with only (K+T+1) frames
 seq_steps=seq_length//(K+T)
-#frame_composing=2 not supported for now, need to change code in calcImageTranslation first
-thresh = 96 #Threshold for mean of pixels over channels (between 0 and 255)
+#Threshold for mean of pixels over channels (between 0 and 255)
+thresh = 96
+#frame composing not supported for now, need to change code in calcImageTranslation
+#frame_composing=2
 
 occupancy_buffer = []
 transformation_buffer = []
@@ -98,40 +110,48 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
     global data_size
     global direction_buffer
     global return_direction
+    
+    #find the direction (left,right,straight)
     if yaw_rate < -0.5: #going left
         direction_buffer.append([1,1])
     elif yaw_rate > 0.5: #going right
         direction_buffer.append([0,1])
     else: #going straight
         direction_buffer.append([0,0])
+        
+    #resize input images
     new_size = tuple(t//8 for t in rgb.shape[:-1]) # from 1920 x 640 to 240 x 80
     data_size = [new_size[1], new_size[0]]
     new_size = tuple(data_size)
     rgb_buffer.append(transform_input(rgb, new_size, False))
     depth_buffer.append(transform_input(depth, new_size, True))
     segmentation_buffer.append(transform_input(segmentation, new_size, False))
+    
+    #generate gridmap from bounding box image, condensed version of original preprocessing script
     occupancy_img = cropAndResizeImage(img)
     occupancy_array = np.array(occupancy_img)
     if len(occupancy_array.shape) == 3:
         occupancy_array = np.mean(occupancy_array, axis=2)
     occlusion_array = createOcclusionMap(occupancy_array)
     occupancy_mask = createOccupancyMask(occupancy_img, occlusion_array, thresh)
-    #occluded_array = createOcclusionImages(occupancy_mask, occlusion_array)
     transformation_matrix = calcImageTranslation(occupancy_array, yaw_rate, speed)
     occupancy_buffer.append(occupancy_mask)
     occlusion_buffer.append(occlusion_array)
     transformation_buffer.append(transformation_matrix)
-    #for testing
-    #return occupancy_mask, occlusion_array#, transformation_matrix
+
+    #if enough frames have been buffered combine them into one sequence
     if len(occupancy_buffer) >= seq_length:
         compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer)
         return_camera_rgb.append(np.array(rgb_buffer))
         return_camera_segmentation.append(np.array(segmentation_buffer))
         return_camera_depth.append(np.array(depth_buffer))
         return_direction.append(direction_buffer)
+        
+        #if enough sequences have been gathered combine them into one tfrecord
         if len(return_clips) >= samples_per_record:
-            #return return_clips
-            convert_tfrecord(np.array(return_camera_rgb), np.array(return_camera_segmentation), np.array(return_camera_depth), np.array(return_direction).astype(np.uint8))
+            convert_tfrecord(np.array(return_camera_rgb), 
+                             np.array(return_camera_segmentation), 
+                             np.array(return_camera_depth), np.array(return_direction).astype(np.uint8))
             idnr += 1
             return_clips = []
             return_transformation = []
@@ -139,6 +159,8 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
             return_camera_segmentation = []
             return_camera_depth = []
             return_direction = []
+            
+            
         del occupancy_buffer[:step_size]
         del occlusion_buffer[:step_size]
         del transformation_buffer[:step_size]
@@ -146,8 +168,8 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
         del depth_buffer[:step_size]
         del segmentation_buffer[:step_size]
         del direction_buffer[:step_size]
-    
-    
+
+#resize and convert images
 def transform_input(responses, size, convert=True):
     responses = Image.fromarray(np.uint8(responses))
     if convert:
@@ -155,6 +177,7 @@ def transform_input(responses, size, convert=True):
     else:
         return (np.array(responses.resize(size, Image.ANTIALIAS)) / 127 - 1).astype(np.float32)
     
+#all following functions taken from preprocessing script, for more information see there
 def cropAndResizeImage(img):
     if prescale > 0:
         img.thumbnail((prescale, prescale), PIL.Image.ANTIALIAS)
@@ -341,7 +364,7 @@ def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_bu
                 max_occup_diff = max(max_occup_diff, occup_diff)
                 min_occup_diff = min(min_occup_diff, occup_diff)
                 mean_occup_diff = mean_occup_diff + occup_diff
-            if transformation_only or occup_diff >= 0: #was 6
+            if transformation_only or occup_diff >= 0: #occup_diff >= 6 in orig. script
                 if not transformation_only:
                     return_clips.append(all_clips[-1])
                 return_transformation.append(all_transformation[-1])
