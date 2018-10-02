@@ -1,19 +1,16 @@
-#CREATES ODOMETRY FILE AND OCCUPANCY MAP FROM KITTI DATA
+#CONVERTS KITTI TO TFRECORD WITH GRID MAP AND RGB. SEGMENTATION AND DEPTH ARE SET TO BLACK.
 
+from PIL import Image, ImageDraw
 import numpy as np
+import glob
+from tqdm import tqdm
+import time
+import json
+import os
+from argparse import ArgumentParser
+import preprocessing_situ_all_data
 import pykitti
 import parseTrackletXML as xmlParser
-import array
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from matplotlib import collections  as mc
-from matplotlib import patches
-from tqdm import tqdm
-from PIL import Image, ImageDraw
-import os
-import argparse
-import math
 
 # Change this to the directory where you store KITTI data
 basedir = 'data'
@@ -104,9 +101,12 @@ def load_tracklets_for_frames(n_frames, xml_path):
 
     return (frame_tracklets, frame_tracklets_types)
 
-
-def main(date, drive, file_loc):
-
+#file_loc = '/mnt/ds3lab-scratch/lucala/new_dataset/all_data/'
+#storage_loc = '/mnt/ds3lab-scratch/lucala/process_MB_large_data_format/tfrecords/'
+def main(drive, date, storage_loc, prefix):
+    preprocessing_situ_all_data.set_dest_path(storage_loc)
+    preprocessing_situ_all_data.update_episode(prefix)
+    ind = 0
     #date = '2011_09_26'
     #drive = '0005'
     dataset = load_dataset(date, drive)
@@ -115,19 +115,15 @@ def main(date, drive, file_loc):
     dataset_velo = list(dataset.velo)
     dataset_timestamps = list(dataset.timestamps)
     dataset_oxts = dataset.oxts
+    dataset_rgb = dataset.rgb
+    print(dataset_rgb)
+    exit()
 
-    #file_loc = 'Z:/thesis/KITTI/occupancyPIL/'
-    if not os.path.exists(file_loc):
-        os.makedirs(file_loc)
-
-
-    #GPS
     R = 6371000 #radius earth [m]
     curr_oxts = dataset_oxts[0][0]
     shift_x = R * np.cos(curr_oxts.lat) * np.cos(curr_oxts.lon)
     shift_y = R * np.cos(curr_oxts.lat) * np.sin(curr_oxts.lon)
     yaw_shift = 180 * curr_oxts.yaw / math.pi + 180;
-
 
     for curr_frame in tqdm(range(len(dataset_velo)-1)): #-1 for fencepost problem
 
@@ -158,10 +154,8 @@ def main(date, drive, file_loc):
         next_time = dataset_timestamps[curr_frame+1].timestamp()
         time_diff = next_time-curr_time
 
-        im = im.rotate(90)
-        im.save(file_loc + 'gridmap_'+ str(ms) +'_occupancy' + '.png')
-        imblack = Image.new('RGB', (256, 256), (255,255,255))
-        imblack.save(file_loc + 'gridmap_'+ str(ms) +'_horizon_map' + '.png')
+        gridmap = im.rotate(90)
+        imblack = Image.new('RGB', (1920,640), (255,255,255))
 
         curr_oxts = dataset_oxts[curr_frame][0]
         next_oxts = dataset_oxts[curr_frame+1][0]
@@ -182,17 +176,50 @@ def main(date, drive, file_loc):
 
         speed = np.linalg.norm([curr_oxts.vf, curr_oxts.vl])*np.sign(curr_oxts.vf) #need to flip sign because norm does not account for backward driving case
 
-        with open(file_loc+"odometry_t_mus-x_m-y_m-yaw_deg-yr_degs-v_ms.txt", "a") as text_file:
-                            text_file.write("%d %f %f %f %f %f\n" % \
-                               (ms,ids_x,ids_y,yaw-yaw_shift,yaw_rate,speed))
+        preprocessing_situ_all_data.main(gridmap,
+            np.asarray(Image.open(rgb).resize((1920,640),Image.ANTIALIAS)), np.asarray(imblack),
+            np.asarray(imblack),
+            yaw_rate, speed)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--date", type=str, dest="date",
-                        default='2011_09_26', help="date of data folder (ex. 2011_09_26)")
-    parser.add_argument("--drive", type=str, dest="drive",
-                        default='0005', help="drive string of data folder (ex. 0005)")
-    parser.add_argument("--storage-loc", type=str, dest="file_loc",
-                        default='Z:/thesis/KITTI/occupancyPIL/', help="location where data will be saved")
+
+    for file in tqdm(sorted(glob.glob(file_loc+'gridmap_*_occupancy.png'))):
+        ind += 1
+        #if ind < 23790: #so as not to start from beginning again in case of failure
+        #    continue
+        tmp = file.split('/')[-1]
+        tmp = tmp.split('.')[0]
+        nr = tmp.split('_')[1]
+        #print(nr)
+        gridmap = file_loc+"gridmap_"+str(nr)+"_occupancy.png"
+        segmentation = file_loc+"gridmap_"+str(nr)+"_stereo_cnn.png"
+        rgb = file_loc+"gridmap_"+str(nr)+"_stereo_img.png"
+        dep = np.zeros((1920,640))
+        with open(file_loc+"gridmap_"+str(nr)+"_meta_data.json", 'r') as fp:
+            try:
+                obj = json.load(fp)
+                speed = obj['dynamics']['speed']['value']
+                yaw_rate = obj['dynamics']['yawrate']['value']
+            except:
+                continue
+        #img, rgb, depth, segmentation, yaw_rate, speed
+        #print(speed)
+        #print(yaw_rate)
+        preprocessing_situ_all_data.main(Image.open(gridmap),
+            np.asarray(Image.open(rgb).resize((1920,640),Image.ANTIALIAS)), dep,
+            np.asarray(Image.open(segmentation).resize((1920,640),Image.ANTIALIAS)),
+            yaw_rate, speed)
+
+if __name__ == "__main__":
+
+    parser = ArgumentParser()
+    parser.add_argument("--date", type=str, dest="date", default="2011_09_11",
+                        help="value found on KITTI.")
+    parser.add_argument("--drive", type=str, dest="drive", default="0005",
+                        help="value found on KITTI.")
+    parser.add_argument("--storage-loc", type=str, dest="storage_loc", default="./tfrecords/",
+                        help="where should tfRecords be stored?")
+    parser.add_argument("--prefix", type=str, dest="prefix", default="data",
+                        help="string prepended to tfRecord name.")
+
     args = parser.parse_args()
     main(**vars(args))

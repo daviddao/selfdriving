@@ -17,7 +17,7 @@ import numpy as np
 import skimage.measure as measure
 
 import sys
-path_to_evalmodel = 'F:/selfdriving/training_large_data_format'
+path_to_evalmodel = '../../training_large_data_format'
 sys.path.insert(0, path_to_evalmodel)
 
 from move_network_distributed_noGPU import MCNET
@@ -292,6 +292,7 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
     ppTime = time.time()
     ready, gridmap, gm_map, trans_matrix, rgb, seg, dep, dir_vehicle = preprocessing(input_gridmap, rgb, dep, seg, yaw_rate, speed)
     ppTime = time.time() - ppTime
+    # run eval K times without eval
     if ready:
         evTime = time.time()
         samples, rgb_pred, seg_pred, dep_pred = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred], 

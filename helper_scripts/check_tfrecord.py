@@ -1,3 +1,9 @@
+#USED TO VISUALIZE TFRECORD
+#RETURNS 1. SAMPLE IN TFRECORD FILE
+#1 sample contains either input, target, road and transformation matrix related to grid maps or
+#input, target, road, transformation matrix, RGB, segmentation and depth. depending on type of TFrecord.
+#call main for first type, main_all_data for second type.
+
 import numpy as np
 import tensorflow as tf
 from glob import glob

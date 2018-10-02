@@ -187,6 +187,7 @@ def run_carla_client(args):
                         im = Image.new('L', (256*6, 256*6), (127))
                         shift = 256*6/2
                         draw = ImageDraw.Draw(im)
+                        # create occupancy map and save participant info in tracklet txt file similar to KITTI
                         for agent in measurements.non_player_agents:
                             if agent.HasField('vehicle') or agent.HasField('pedestrian'):
                                 participant = agent.vehicle if agent.HasField('vehicle') else agent.pedestrian
