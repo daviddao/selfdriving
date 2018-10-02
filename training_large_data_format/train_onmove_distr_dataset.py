@@ -25,25 +25,11 @@ import threading
 import datetime
 from PIL import Image
 
-#from tensorflow.python import debug as tf_debug
-
 def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
          T, num_iter, gpu, sequence_steps, d_input_frames, tfrecordname, useSELU=True,
-         useCombinedMask=False, predOcclValue=1, img_save_freq=200, model_name="", useSharpen=False, useDenseBlock=True, samples=1, data_path_scratch=""):
-    # "/lhome/phlippe/dataset/TwoHourSequence_crop/Train/compressed64x64/"
-    data_path = '/mnt/ds3lab/daod/mercedes_benz/phlippe/dataset/BigLoop/'
-    #data_path_scratch = '/mnt/ds3lab-scratch/lucala/phlippe/dataset/'
-    #data_path_scratch = '/mnt/ds3lab-scratch/lucala/sync/selfdriving/preprocessing/preprocessed_dataset/'
-    model_path_scratch = '/mnt/ds3lab-scratch/lucala/phlippe/'
-    """
-    if sequence_steps * (K + T) <= 60:
-      train_list = data_path + "train_onmove_96x96.txt"
-    else:
-      train_list = data_path + "train_onmove_long_96x96.txt"
-    f = open(train_list, "r")
-    trainfiles = f.readlines()
-    print(str(len(trainfiles)) + " train files")
-    """
+         useCombinedMask=False, predOcclValue=1, img_save_freq=200, model_name="",
+         useSharpen=False, useDenseBlock=True, samples=1, data_path_scratch="", model_path_scratch=""):
+
     margin = 0.3
     updateD = True
     updateG = True
@@ -67,7 +53,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
               + "_selu=" + str(useSELU)
               + "_comb=" + str(useCombinedMask)
               + "_predV=" + str(predOcclValue))
-              #+ "_datetime=" + str(date_now.hour)+":"+str(date_now.minute)+"-"+str(date_now.day)+"-"+str(date_now.month)+"-"+str(date_now.year))
+
 
     print("\n" + prefix + "\n")
     checkpoint_dir = model_path_scratch + "models/" + prefix + "/"
@@ -82,7 +68,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         makedirs(summary_dir)
 
     num_gpu = len(gpu)
-    
+
     try:
         tmp = sorted(glob.glob(samples_dir+'*.png'))[-1]
         tmp = tmp.split('/')[-1]
@@ -206,7 +192,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
 
         print("Setup optimizer...")
-        #g_optim = tf.train.AdamOptimizer(lr_G, beta1=0.5).minimize(alpha * model.L_img, var_list=model.g_vars)
+        
         if beta != 0:
             opt_D = tf.train.AdamOptimizer(lr_D, beta1=0.5)
 
@@ -250,11 +236,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
         #create iterator
         iterator = dataset.make_initializable_iterator()
-        # Create saveable object from iterator.
-        #saveable = tf.contrib.data.make_saveable_from_iterator(iterator)
-        # Save the iterator state by adding it to the saveable objects collection.
-        #tf.add_to_collection(tf.GraphKeys.SAVEABLE_OBJECTS, saveable)
-        
+
         #def make_prior():
         loc = tf.zeros(model.gf_dim)
         scale = tf.ones(model.gf_dim)
@@ -286,7 +268,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             model.transformation_error = tf.reduce_mean(tf.squared_difference(transformation_batch, tf.transpose(trans_pred,[1,0,2,3])))
                             model.direction_error = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf.transpose(dir_pred,[1,0,2]),labels=direction))
                             model.odometry_error = model.direction_error + model.transformation_error
-                            
+
                             model.rgb = rgb_cam
                             model.seg = seg_cam
                             model.dep = dep_cam
@@ -347,7 +329,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                                 divergence = tf.stack([tf.contrib.distributions.kl_divergence(post, prior) for post in grid_posterior],1)
                                 model.L_img = model.weighted_BCE_loss(model.G_masked, model.target_masked)
                                 model.L_img = -(tf.reduce_mean(model.L_img) - tf.reduce_mean(divergence)) #Loss = -ELBO = likelihood - divergence
-                                
+
                             model.L_BCE = model.L_img
                             if (beta != 0): #use GAN
                                 model.L_GAN = -tf.reduce_mean(model.D_)
@@ -410,51 +392,27 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         #with tf.device('/cpu:0'):
         # Average the gradients
         grads = average_gradients(tower_grads)
-        # Add histograms for gradients.
-        #for grad, var in grads:
-        #    if grad is not None:
-        #        summaries.append(tf.summary.histogram(var.op.name + '/gradients', grad))
+
         # apply the gradients with our optimizers
         train = opt_E.apply_gradients(grads, global_step=global_step)
 
         if beta != 0:
             grads_d = average_gradients(tower_grads_d)
-            #for grad, var in grads_d:
-            #    if grad is not None:
-            #        summaries.append(tf.summary.histogram(var.op.name + '/gradients_d', grad))
             train_d = opt_D.apply_gradients(grads_d, global_step=global_step)
 
         grads_c = average_gradients(tower_grads_cam)
         train_c = opt_C.apply_gradients(grads_c, global_step=global_step)
-
-        # Add histograms for trainable variables.
-        #for var in tf.trainable_variables():
-        #    summaries.append(tf.summary.histogram(var.op.name, var))
 
         model.saver = tf.train.Saver(max_to_keep=10)
 
 
     print("Setup session...")
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.0, allow_growth=True)
-    #with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
-    #                                      log_device_placement=False,
-    #                                      gpu_options=gpu_options)) as sess:
-
-    # Create options to profile the time and memory information.
-    #builder = tf.profiler.ProfileOptionBuilder
-    #opts = builder(builder.time_and_memory()).order_by('micros').build()
-    # Create a profiling context, set constructor argument `trace_steps`,
-    # `dump_steps` to empty for explicit control.
-    #with tf.contrib.tfprof.ProfileContext('/mnt/ds3lab-scratch/lucala/train_dir',
-    #                                      trace_steps=[],
-    #                                      dump_steps=[]) as pctx:
 
     with graph.as_default():
         init = tf.global_variables_initializer()
 
         sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_placement=False,gpu_options=gpu_options))
-
-        #sess = tf_debug.LocalCLIDebugWrapperSession(sess)
 
         sess.run(init)
 
@@ -464,15 +422,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         else:
             print(" [!] Load failed...")
 
-        #g_sum = tf.summary.merge([model.L_p_sum,
-        #                          model.L_BCE_sum, model.loss_sum,
-        #                          model.L_GAN_sum])
         g_sum = tf.summary.merge(summaries)
         if beta != 0:
             d_sum = tf.summary.merge([model.d_loss_real_sum, model.d_loss_sum,
                                       model.d_loss_fake_sum])
         writer = tf.summary.FileWriter(summary_dir, sess.graph)
-        #print("Writer set...")
+
         counter = iters + 1
         start_time = time.time()
 
@@ -480,18 +435,11 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         max_pred = min_pred = max_labels = min_labels = img_err = -1
         errD = errD_fake = errD_real = errG = 0
 
-        #num_iter_updated = num_iter // gpu
         while iters < num_iter:
             #print("initializing iterator...")
             sess.run(iterator.initializer)
 
-            #for _, batchidx in mini_batches:
             for i in range(len_trainfiles//(batch_size*num_gpu)):
-
-                # Enable tracing for next session.run.
-                #pctx.trace_next_step()
-                # Dump the profile to '/tmp/train_dir' after the step.
-                #pctx.dump_next_step()
 
                 load_start = time.time()
                 if beta != 0 and updateD:
@@ -542,19 +490,11 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                     % (iters_G+prevNr, iters+prevNr, errD_fake, errD_real, max_pred, min_pred, max_labels, min_labels, odometry_error)
                 )
 
-                #profiler
-                #pctx.profiler.profile_operations(options=opts)
                 if np.mod(counter, img_save_freq) == 1:
                     #print(np.reshape(transformation_batch[:,:,0,:6], [transformation_batch.shape[0], transformation_batch.shape[1], 2, 3]))
                     samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask, model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred])
                     curr_frame = []
                     for seq_step in range(T):
-                        #print(rgb[0,K+seq_step,:,:,:].shape)
-                        #print(rgb_pred[0,K+seq_step,:,:,:].shape)
-                        #print(seg[0,K+seq_step,:,:,:].shape)
-                        #print(seg_pred[0,K+seq_step,:,:,:].shape)
-                        #print(dep[0,K+seq_step,:,:,:].shape)
-                        #print(dep_pred[0,K+seq_step,:,:,:].shape)
                         curr_frame.append(np.concatenate([rgb[0,K+seq_step,:,:,:],rgb_pred[0,K+seq_step,:,:,:],
                                   seg[0,K+seq_step,:,:,:],seg_pred[0,K+seq_step,:,:,:],
                                   np.tile(dep[0,K+seq_step,:,:,:],[1,1,3]),np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
@@ -652,11 +592,13 @@ if __name__ == "__main__":
                         default=False, help="If sharpening should be used. DEPRECATED.")
     parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
                         default="all_in_one_new_shard_imgsze=96_seqlen=4_K=9_T=10_all", help="tfrecord name")
-    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
+    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=False,
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")
     parser.add_argument("--data_path_scratch", type=str, dest="data_path_scratch", default="/mnt/ds3lab-scratch/lucala/phlippe/dataset/",
+                        help="where are tfRecords stored?")
+    parser.add_argument("--model_path_scratch", type=str, dest="model_path_scratch", default="/mnt/ds3lab-scratch/lucala/phlippe/",
                         help="where are tfRecords stored?")
     parser.add_argument("--data_w", type=int, dest="data_w",
                         default=240, help="rgb/seg/depth image width size")
