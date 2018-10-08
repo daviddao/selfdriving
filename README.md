@@ -24,8 +24,10 @@ Datasets for the project are:
   - KITTI
   - CARLA
 
-They can be found at
-    /mnt/ds3lab-scratch/lucala/datasets/
+They can be found at:
+```
+/mnt/ds3lab-scratch/lucala/datasets/
+```
 
 Note: use the check_tfrecord jupyter notebook in the dataset directory to understand data format.
 
