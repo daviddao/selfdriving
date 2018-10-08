@@ -29,7 +29,7 @@ They can be found at:
 /mnt/ds3lab-scratch/lucala/datasets/
 ```
 
-Note: use the check_tfrecord jupyter notebook in the dataset directory to understand data format.
+Note: use the `check_tfrecord` jupyter notebook in the dataset directory to understand data format.
 
 Every TFRecord file has 20 sequences and each sequence contains 20 frames divided into K=9, T=10. Every frame consists of the ground truth grid map, input grid map, road map, transformation matrix, front facing RGB, segmentation and depth image as well as the direction vector.
 

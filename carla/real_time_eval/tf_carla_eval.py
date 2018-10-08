@@ -5,6 +5,7 @@ import time
 from skimage.measure import compare_ssim as ssim
 from tqdm import tqdm
 import imageio
+import math
 
 import tkinter as tk
 from PIL import Image, ImageDraw, ImageTk
@@ -17,7 +18,8 @@ import numpy as np
 import skimage.measure as measure
 
 import sys
-path_to_evalmodel = '../../training_large_data_format'
+#change this to where repository is located
+path_to_evalmodel = 'F:/selfdriving/large data format/training_large_data_format'
 sys.path.insert(0, path_to_evalmodel)
 
 from move_network_distributed_noGPU import MCNET
@@ -78,6 +80,34 @@ def get_occupancy_diff(clip):
     occup_diff = occup_clip[:,:,:-1] - occup_clip[:,:,1:]
     occup_diff = np.absolute(occup_diff)
     return np.sum(occup_diff) * 1.0 / occup_diff.shape[2]
+
+def trigClip(x,fn):
+    return fn(np.clip(x,-1,1))
+
+def inverseTransformationMatrix(nextTf):
+    mat = np.zeros([3,2,3], dtype=np.float32)
+    mat[:,0,:] = nextTf[:,0:3]
+    mat[:,1,:] = nextTf[:,3:6]
+    matFull = np.clip(mat[0,:],-1,1)
+    #mean theta extracted from matrix
+    theta = -(math.asin(-matFull[0,1])+math.asin(matFull[1,0]))/2
+    imsize = 96 // 2
+    pixel_diff_y = matFull[1,2] * ((imsize - 1) / 2.0)
+    pixel_diff_x = matFull[0,2] * ((imsize - 1) / 2.0)
+    py = pixel_diff_y / math.cos(theta)
+    px = pixel_diff_x / math.sin(theta)
+
+    if np.isinf(px) or np.isnan(px):
+        pixel_diff = py
+    elif np.isinf(py) or np.isnan(py):
+        pixel_diff = px
+    else:
+        pixel_diff = (px+py)/2
+    pixel_size = 45.6 * 1.0 / imsize
+    period_duration = 1.0 / 24
+    vel = pixel_diff * pixel_size / period_duration
+    yaw_rate = math.degrees(theta) / period_duration
+    return vel, yaw_rate
 
 def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer, seq_length,
                            transformation_only=False, split_number = 0, split_amount = 1):
@@ -256,7 +286,7 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
                 pred, _, _, rgb_pred, seg_pred, dep_pred, _, _, trans_pred, dir_pred = model.forward(model.input_batch, model.map_batch, model.transformation_batch, model.rgb_cam, model.seg_cam, model.dep_cam, model.direction, 0)
 
                 model.G = tf.stack(axis=3, values=pred)
-
+                model.trans_pred = trans_pred
                 model.rgb_pred = tf.stack(rgb_pred,1)
                 model.seg_pred = tf.stack(seg_pred,1)
                 model.dep_pred = tf.stack(dep_pred,1)
@@ -292,10 +322,9 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
     ppTime = time.time()
     ready, gridmap, gm_map, trans_matrix, rgb, seg, dep, dir_vehicle = preprocessing(input_gridmap, rgb, dep, seg, yaw_rate, speed)
     ppTime = time.time() - ppTime
-    # run eval K times without eval
     if ready:
         evTime = time.time()
-        samples, rgb_pred, seg_pred, dep_pred = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred], 
+        samples, rgb_pred, seg_pred, dep_pred, tfmat = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred, model.trans_pred], 
                                                          feed_dict={model.input_batch: gridmap,
                                                                     model.map_batch: gm_map,
                                                                     model.transformation_batch: trans_matrix,
@@ -303,6 +332,7 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
                                                                     model.seg_cam: seg,
                                                                     model.dep_cam: dep,
                                                                     model.direction: dir_vehicle})
+
         
         evTime = time.time() - evTime
         imTime = time.time()
