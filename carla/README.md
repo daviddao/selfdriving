@@ -22,7 +22,7 @@ Execute the scripts while the CARLA server is running. Make sure that the port s
 
 ## Scripts
   - CarlaRunPython: Jupyter notebook used to run python scripts.
-  - gather_data: gathers frames of RGB, depth, lidar and occupancy and saves to `--file-location`.
+  - gather_data: gathers frames of RGB, depth, lidar and occupancy and saves to `--dest-path`.
   - gather_data_situ: Gathers frames of RGB, depth, segmentation and occupancy. Uses preprocessing script to immediately convert data into TFRecord.
   - preprocessing_situ: Helper scripts for `gather_data_situ.py`. Takes frames and bundles them into TFRecord. This version only converts grid maps.
   - preprocessing_situ_all_data: Helper scripts for `gather_data_situ.py`. Converts all data (RGB/depth/segmentation/grid map).

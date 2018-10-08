@@ -307,7 +307,7 @@ def main():
         default="",
         help='Starting position driving up to street intersection.')
     argparser.add_argument(
-        '-file', '--file-location',
+        '-dp', '--dest-path',
         dest='file',
         default='Z:/thesis/carla/',
         help='Where to save data.')
