@@ -24,14 +24,14 @@ Execute the scripts while the CARLA server is running. Make sure that the port s
   - CarlaRunPython: Jupyter notebook used to run python scripts.
   - gather_data: gathers frames of RGB, depth, lidar and occupancy and saves to `--file-location`.
   - gather_data_situ: Gathers frames of RGB, depth, segmentation and occupancy. Uses preprocessing script to immediately convert data into TFRecord.
-  - preprocessing_situ: Helper scripts for `gather_data.py`. Takes frames and bundles them into TFRecord. This version only converts grid maps.
-  - preprocessing_situ_all_data: Helper scripts for `gather_data.py`. Converts all data (RGB/depth/segmentation/grid map).
+  - preprocessing_situ: Helper scripts for `gather_data_situ.py`. Takes frames and bundles them into TFRecord. This version only converts grid maps.
+  - preprocessing_situ_all_data: Helper scripts for `gather_data_situ.py`. Converts all data (RGB/depth/segmentation/grid map).
   - DQNcarCarla.py: Deep-Q Network RL test for Carla, taken from AirSim Simulator.
   - carla_intersection_locations: Text file containing values extracted from `town_positions` with `view_start_positions.py` that can be used as starting positions for the car. The simulation will then start with the vehicle driving towards a random intersection.
-  - **real time eval**: Creates window showing next 10 predicted frames in real-time while running Carla. Run `carla_eval_realtime.py`, uses tf_carla_eval.py and preprocessing_situ_all_data.py to preprocess data. Note: Before running this change line 22 in `tf_carla_eval.py` to reflect the current location.
+  - **real time eval**: Folder containing scripts to run real-time evaluation. Run `carla_eval_realtime.py`, uses `tf_carla_eval.py` and `preprocessing_situ_all_data.py` to preprocess data. Creates window showing next 10 predicted frames in real-time while running Carla. Note: Before running this change line 22 in `tf_carla_eval.py` to reflect the current location.
 
-## Important arguments for gathering scripts
-  - autopilot: We want the vehicle to be autoplioted while gathering data.
+## Important arguments for data gathering scripts
+  - autopilot: We want the vehicle to be autopiloted while gathering data.
   - images-to-disk: We want to save the gathered data to disk.
   - carla-settings: Similar file to what is passed to server. We do not use it because the values are hardcoded in the script. Contains information such as number of pedestrians, vehicles, weather condition, etc.
   - synchronous_mode: We want the script and server to run in synchronous mode so that the simulation stops at every iteration and waits for the script to respond. This allows the time variable to behave physically correct and the script to handle every received frame.
