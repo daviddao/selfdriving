@@ -16,25 +16,24 @@ from spatial_transformer import spatial_transformer_network
 
 class MCNET(object):
 
-    def __init__(self, image_size, data_size, batch_size=32, c_dim=1,  # Input has to be 2 dimensional: First occupancy, last occlusion map
-                 K=10, T=10, checkpoint_dir=None, is_train=True,
+    def __init__(self, image_size, data_size, batch_size=1, c_dim=1,  # Input has to be 2 dimensional: First occupancy, last occlusion map
+                 K=10, T=10, checkpoint_dir=None,
                  iterations=1, d_input_frames=20, useSELU=False,
                  motion_map_dims=2, showFutureMaps=True,
                  predOcclValue=-1, useSmallSharpener=False,
-                 useGAN=True, useSharpen=False, useGenSeq=False, useDenseBlock=True, samples=1):
+                 useGAN=False, useSharpen=False, useDenseBlock=True, samples=1):
 
         self.samples = samples
-        self.useDense = useDenseBlock
-        self.useGenSeq = useGenSeq
         self.batch_size = batch_size
         self.image_size = image_size
         self.data_size = data_size
-        self.is_train = is_train
+        self.useDenseBlock = useDenseBlock
         self.d_input_frames = d_input_frames
         self.useSELU = useSELU
         self.maps_offset = 1 if showFutureMaps else 0
         self.predOcclValue = predOcclValue
         self.small_sharpener = useSmallSharpener
+
         self.useGAN = useGAN
         self.useSharpen = useSharpen
 
@@ -45,10 +44,14 @@ class MCNET(object):
         self.K = K
         self.T = T
         self.iterations = iterations
-        self.input_shape = [batch_size, self.image_size[0],self.image_size[1], iterations * (K + T), c_dim + 1]
-        self.motion_map_shape = [batch_size, self.image_size[0],self.image_size[1], iterations * (K + T) + self.maps_offset, motion_map_dims]
-        self.target_shape = [batch_size, self.image_size[0],self.image_size[1], iterations * (K + T), c_dim + 1]  # In here also the occlusion map for cutting out the gradients
-        self.occlusion_shape = [batch_size, self.image_size[0],self.image_size[1], 1]
+        self.input_shape = [batch_size, self.image_size[0],
+                             self.image_size[1], iterations * (K + T), c_dim + 1]
+        self.motion_map_shape = [batch_size, self.image_size[0],
+                             self.image_size[1], iterations * (K + T) + self.maps_offset, motion_map_dims]
+        self.target_shape = [batch_size, self.image_size[0],
+                             self.image_size[1], iterations * (K + T), c_dim + 1]  # In here also the occlusion map for cutting out the gradients
+        self.occlusion_shape = [batch_size, self.image_size[0],
+                                self.image_size[1], 1]
         self.ego_motion_shape = [batch_size, iterations * (K + T), 3, 8]
         self.rgb_shape = [batch_size, iterations * (K+T), self.data_size[0], self.data_size[1], 3]
         self.seg_shape = [batch_size, iterations * (K+T), self.data_size[0], self.data_size[1], 3]
@@ -59,82 +62,74 @@ class MCNET(object):
         print("Depth shape = " + str(self.depth_shape))
         print("K = " + str(K) + ", T = " + str(T))
 
-    def forward(self, input_tensor, motion_maps, ego_motions, rgb_cam, seg_cam, dep_cam, direction, tower_id):
+
+    def forward(self, input_tensor, motion_maps, ego_motions, rgb_cam, seg_cam, dep_cam, direction):
 
         reuse = False
         pred = []
-        gm_pred = []
-        pre_gm_pred = []
+        trans_pred = []
+        pre_trans_pred = []
         rgb_pred = []
         seg_pred = []
         dep_pred = []
-        grid_posterior = []
-        img_posterior = []
-        trans_pred = []
-        dir_pred = []
         for iter_index in range(self.iterations):
-            print("Iteration " + str(iter_index) + " on tower_"+str(tower_id))
-            with tf.name_scope('iter_%d' % (iter_index)):
-                # Ground Truth as Input
-                for t in range(self.K):
-                    timestep = iter_index * (self.K + self.T) + t
-                    #gridmap part   #removed motion maps since we do not have underlying road in carla/kitti and would need to predict it for pure eval
-                    #motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :], motion_maps[:,:,:,timestep,:]], axis=3)
-                    motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :]], axis=3)
-                    transform_matrix = ego_motions[:,timestep]
-                    h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
-                    h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
-                    decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
-                    pre_gm_pred.append(tf.identity(decoded_output))
-                    prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
-                    prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
-                    gm_pred.append(tf.identity(prediction_output))
-                    self.transform_hidden_states(transform_matrix)
-                    pred.append(prediction_output)
-                    grid_posterior.append(posterior)
-                    #auxiliary data part
-                    with tf.variable_scope("CAM", reuse=reuse):
-                        cell, res = self.conv_data(rgb_cam[:,timestep], seg_cam[:,timestep], dep_cam[:,timestep], direction[:, timestep], motion_enc_input, transform_matrix, reuse)
-                        p_rgb, p_seg, p_dep, posterior, p_trans, p_dir = self.deconv_data(cell, res, reuse)
-                        rgb_pred.append(p_rgb)
-                        seg_pred.append(p_seg)
-                        dep_pred.append(p_dep)
-                        img_posterior.append(posterior)
-                        trans_pred.append(p_trans)
-                        dir_pred.append(p_dir)
-                    reuse = True
+            print("Iteration " + str(iter_index))
+            # Ground Truth as Input
+            for t in range(self.K):
+                timestep = iter_index * (self.K + self.T) + t
+                #gridmap part
+                motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :], motion_maps[:,:,:,timestep,:]], axis=3)
+                transform_matrix = ego_motions[:,timestep]
+                h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
+                h_motion = self.dense_block(h_motion, reuse=reuse)
+                decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
+                pre_trans_pred.append(tf.identity(decoded_output))
+                prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
+                prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
+                trans_pred.append(tf.identity(prediction_output))
+                if self.useSharpen:
+                    prediction_output = self.sharpen_image(prediction_output, motion_maps[:,:,:,timestep+1,:], motion_enc_input[:,:,:,:2], reuse=reuse)
+                self.transform_hidden_states(transform_matrix)
+                pred.append(prediction_output)
+                #auxiliary data part
+                with tf.variable_scope("CAM", reuse=reuse):
+                    cell, res = self.conv_data(rgb_cam[:,timestep], seg_cam[:,timestep], dep_cam[:,timestep], direction[:, timestep], input_tensor[:, :, :, timestep, :], transform_matrix, reuse)
+                    p_rgb, p_seg, p_dep = self.deconv_data(cell, res, reuse)
+                    rgb_pred.append(p_rgb)
+                    seg_pred.append(p_seg)
+                    dep_pred.append(p_dep)
+                reuse = True
 
-                # Prediction sequence
-                for t in range(self.T):
-                    timestep = iter_index * (self.K + self.T) + self.K + t
-                    #gridmap part
-                    #motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map, motion_maps[:,:,:,timestep,:]], axis=3)
-                    motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map], axis=3)
-                    h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
-                    h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
-                    decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
-                    pre_gm_pred.append(tf.identity(decoded_output))
-                    prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
-                    prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
-                    gm_pred.append(tf.identity(prediction_output))
-                    self.transform_hidden_states(transform_matrix)
-                    pred.append(prediction_output)
-                    grid_posterior.append(posterior)
-                    #auxiliary data part
-                    with tf.variable_scope("CAM", reuse=reuse):
-                        cell, res = self.conv_data(rgb_pred[-1], seg_pred[-1], dep_pred[-1], dir_pred[-1], motion_enc_input, transform_matrix, reuse)
-                        p_rgb, p_seg, p_dep, posterior, p_trans, p_dir = self.deconv_data(cell, res, reuse)
-                        rgb_pred.append(p_rgb)
-                        seg_pred.append(p_seg)
-                        dep_pred.append(p_dep)
-                        img_posterior.append(posterior)
-                        trans_pred.append(p_trans)
-                        dir_pred.append(p_dir)
+            # Prediction sequence
+            for t in range(self.T):
+                timestep = iter_index * (self.K + self.T) + self.K + t
+                #gridmap part
+                motion_enc_input = tf.concat(
+                  [self.keep_alive(pred[-1]), self.pred_occlusion_map, motion_maps[:,:,:,timestep,:]], axis=3)
+                transform_matrix = ego_motions[:,timestep]
+                h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
+                h_motion = self.dense_block(h_motion, reuse=reuse)
+                decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
+                pre_trans_pred.append(tf.identity(decoded_output))
+                prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
+                prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
+                trans_pred.append(tf.identity(prediction_output))
+                if self.useSharpen:
+                    prediction_output = self.sharpen_image(prediction_output, motion_maps[:,:,:,timestep+1,:], motion_enc_input[:,:,:,:2], reuse=reuse)
+                self.transform_hidden_states(transform_matrix)
+                pred.append(prediction_output)
+                #auxiliary data part
+                with tf.variable_scope("CAM", reuse=reuse):
+                    cell, res = self.conv_data(rgb_pred[-1], seg_pred[-1], dep_pred[-1], direction[:, timestep], input_tensor[:, :, :, timestep, :], transform_matrix, reuse)
+                    p_rgb, p_seg, p_dep = self.deconv_data(cell, res, reuse)
+                    rgb_pred.append(p_rgb)
+                    seg_pred.append(p_seg)
+                    dep_pred.append(p_dep)
 
-        return pred, gm_pred, pre_gm_pred, rgb_pred, seg_pred, dep_pred, grid_posterior, img_posterior, trans_pred, dir_pred
+        return pred, trans_pred, pre_trans_pred, rgb_pred, seg_pred, dep_pred
 
     def conv_data(self, rgb, seg, dep, direction, gridmap, transform_matrix, reuse):
-                #insipred by SNA model from https://arxiv.org/pdf/1710.05268.pdf
+        #insipred by SNA model from https://arxiv.org/pdf/1710.05268.pdf
         res_in = []
         rgb_conv1 = relu(conv2d(rgb, output_dim=self.df_dim, k_h=8, k_w=8, d_h=2, d_w=2, name='rgb_conv1', reuse=reuse), useSELU=self.useSELU)
         seg_conv1 = relu(conv2d(seg, output_dim=self.gf_dim, k_h=8, k_w=8, d_h=2, d_w=2, name='seg_conv1', reuse=reuse), useSELU=self.useSELU)
@@ -235,7 +230,7 @@ class MCNET(object):
         return ret_cell, res_in
 
     def deconv_data(self, cell, res, reuse):
-        if not self.useDense:
+        if not self.useDenseBlock:
             #layer = relu(dilated_conv2d(cell, output_dim=self.gf_dim, k_h=3, k_w=3,dilation_rate=1, name='layer', reuse=reuse), useSELU=self.useSELU)
             with tf.variable_scope("scale_deconv", reuse=reuse):
                 scale_deconv = tf.layers.dense(cell, self.gf_dim, tf.nn.softplus)
@@ -243,29 +238,13 @@ class MCNET(object):
             logit = latent.sample(self.samples)
             logit = tf.reshape(logit, [-1] + cell.shape.as_list())
             cell = tf.reduce_mean(logit, axis=0)
-        else:
-            latent = 0
             
-        deconv_latent = BasicConvLSTMCell([self.data_size[0] // 4, self.data_size[1] // 4], [3, 3], self.gf_dim)
-        if not reuse:
-            self.deconv_latent_state = tf.zeros([self.batch_size, self.data_size[0] // 8, self.data_size[1] // 8, self.gf_dim*2])
-        de_mot_latent, self.deconv_latent_state = deconv_latent(cell, self.deconv_latent_state, scope="deconv_latent", reuse=reuse)
-        
         out_shape1 = [self.batch_size, self.data_size[0] // 4, self.data_size[1] // 4, self.df_dim * 2]
-        deconv1 = relu(deconv2d(de_mot_latent, output_shape=out_shape1, k_h=3, k_w=3, d_h=2, d_w=2, name='dec_deconv1', reuse=reuse), useSELU=self.useSELU)
+        deconv1 = relu(deconv2d(cell, output_shape=out_shape1, k_h=3, k_w=3, d_h=2, d_w=2, name='dec_deconv1', reuse=reuse), useSELU=self.useSELU)
 
         rgb_deconv1 = deconv1[:,:,:,:self.df_dim]
         seg_deconv1 = deconv1[:,:,:,self.df_dim:self.df_dim+self.gf_dim]
         dep_deconv1 = deconv1[:,:,:,self.df_dim+self.gf_dim:-3]
-        #new version training transformation and direction
-        transformation_deconv1 = tf.layers.flatten(deconv1[:,:,:,-2])
-        direction_deconv1 = tf.layers.flatten(deconv1[:,:,:,-1])
-        tl1 = tf.layers.dense(transformation_deconv1, self.gf_dim//2, tf.nn.selu)
-        tl2 = tf.layers.dense(tl1, 1*3*8, tf.nn.selu)
-        dir1 = tf.layers.dense(direction_deconv1, self.gf_dim//2, tf.nn.selu)
-        dir2 = tf.layers.dense(dir1, 1*2, tf.nn.selu)
-        tl_out = tf.reshape(tl2, [self.batch_size*1,3,8])
-        dir_out = tf.reshape(dir2, [self.batch_size,2])
 
         out_shape2 = [self.batch_size, self.data_size[0] // 4, self.data_size[1] // 4, self.gf_dim]
         deconv_rgb_1 = relu(deconv2d(rgb_deconv1, output_shape=out_shape2, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_rgb_1', reuse=reuse), useSELU=self.useSELU)
@@ -338,68 +317,75 @@ class MCNET(object):
         deconv_seg_5 = tanh(deconv2d(deconv_seg_4, output_shape=out_shape_seg_4, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_seg_5', reuse=reuse))
         deconv_dep_5 = tanh(deconv2d(deconv_dep_4, output_shape=out_shape_dep_4, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_dep_5', reuse=reuse))
 
-        return deconv_rgb_5, deconv_seg_5, deconv_dep_5, latent, tl_out, dir_out
-
+        return deconv_rgb_5, deconv_seg_5, deconv_dep_5
 
     def motion_enc(self, motion_in, reuse):
         res_in = []
-        conv1_1 = relu(conv2d(motion_in, output_dim=self.gf_dim, k_h=5, k_w=5, d_h=2, d_w=2, name='mot_conv1_1', reuse=reuse), useSELU=self.useSELU)
+        conv1_1 = relu(conv2d(motion_in, output_dim=self.gf_dim, k_h=5, k_w=5,
+                              d_h=2, d_w=2, name='mot_conv1_1', reuse=reuse), useSELU=self.useSELU)
         res_in.append(conv1_1)
 
-        motion_cell_1 = BasicConvLSTMCell([self.image_size[0] // 2, self.image_size[1] // 2], [3, 3], self.gf_dim)
+        motion_cell_1 = BasicConvLSTMCell([self.image_size[0] // 2, self.image_size[1] // 2],
+                                          [3, 3], self.gf_dim)
         if not reuse:
-            self.motion_cell_state_1 = tf.zeros([self.batch_size, self.image_size[0] // 2, self.image_size[1] // 2, self.gf_dim * 2])
-        h_cell_1, self.motion_cell_state_1 = motion_cell_1(conv1_1, self.motion_cell_state_1, scope="Motion_LSTM_1", reuse=reuse)
+            self.motion_cell_state_1 = tf.zeros([self.batch_size, self.image_size[0] // 2,
+                                                 self.image_size[1] // 2, self.gf_dim * 2])
+        h_cell_1, self.motion_cell_state_1 = motion_cell_1(
+            conv1_1, self.motion_cell_state_1, scope="Motion_LSTM_1", reuse=reuse)
 
-        conv2_1 = relu(conv2d(h_cell_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,d_h=2, d_w=2, name='mot_conv2_1', reuse=reuse), useSELU=self.useSELU)
+        conv2_1 = relu(conv2d(h_cell_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
+                              d_h=2, d_w=2, name='mot_conv2_1', reuse=reuse), useSELU=self.useSELU)
 
         res_in.append(conv2_1)
 
-        motion_cell_2 = BasicConvLSTMCell([self.image_size[0] // 4, self.image_size[1] // 4],[3, 3], self.gf_dim * 2)
+        motion_cell_2 = BasicConvLSTMCell([self.image_size[0] // 4, self.image_size[1] // 4],
+                                          [3, 3], self.gf_dim * 2)
         if not reuse:
-            self.motion_cell_state_2 = tf.zeros([self.batch_size, self.image_size[0] // 4,self.image_size[1] // 4, self.gf_dim * 4])
-        h_cell_2, self.motion_cell_state_2 = motion_cell_2(conv2_1, self.motion_cell_state_2, scope="Motion_LSTM_2", reuse=reuse)
+            self.motion_cell_state_2 = tf.zeros([self.batch_size, self.image_size[0] // 4,
+                                                 self.image_size[1] // 4, self.gf_dim * 4])
+        h_cell_2, self.motion_cell_state_2 = motion_cell_2(
+            conv2_1, self.motion_cell_state_2, scope="Motion_LSTM_2", reuse=reuse)
 
         return h_cell_2, res_in
 
+        #DENSE BLOCK?
+        """
+        conv3_1 = relu(dilated_conv2d(h_cell_2, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
+                                                 dilation_rate=1, name='mot_dil_conv3_1', reuse=reuse), useSELU=self.useSELU)
+        conv3_2 = relu(dilated_conv2d(conv3_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
+                                                 dilation_rate=2, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
+
+        motion_cell_3 = BasicConvLSTMCell([self.image_size[0] // 4, self.image_size[1] // 4],
+                                          [3, 3], self.gf_dim * 2)
+        if not reuse:
+            self.motion_cell_state_3 = tf.zeros([self.batch_size, self.image_size[0] // 4,
+                                                 self.image_size[1] // 4, self.gf_dim * 4])
+        h_cell_3, self.motion_cell_state_3 = motion_cell_3(
+            conv3_2, self.motion_cell_state_3, scope="Motion_LSTM_3", reuse=reuse)
+
+        return h_cell_3, res_in
+        """
+
+
     def dense_block(self, h_comb, reuse=False):
-        if self.useDense:
-            #print("Using dense block...")
+        if self.useDenseBlock:
             conv3_1 = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
                                                      dilation_rate=1, name='mot_dil_conv3_1', reuse=reuse), useSELU=self.useSELU)
             conv3_2 = relu(dilated_conv2d(conv3_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
                                                      dilation_rate=2, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
-            return conv3_2, 0
+            return conv3_2
         else:
-            #print("Using VAE...")
-            #print(h_comb.shape)
-            #first_layer = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim * 2, k_h=3, k_w=3,dilation_rate=1, name='mot_dil_conv3_1', reuse=reuse),useSELU=self.useSELU)
             second_layer = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim, k_h=3, k_w=3,dilation_rate=1, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
-            #first_layer = relu(conv2d(h_comb, output_dim=self.gf_dim * 2, k_h=3, k_w=3, name='mot_dil_conv3_1', reuse=reuse),useSELU=self.useSELU)
-            #second_layer = relu(conv2d(first_layer, output_dim=self.gf_dim, k_h=3, k_w=3, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
-            #print(second_layer)
-            #print(second_layer.shape)
             with tf.variable_scope("scale", reuse=reuse):
                 scale = tf.layers.dense(second_layer, self.gf_dim, tf.nn.softplus)
             latent = tf.contrib.distributions.MultivariateNormalDiag(second_layer, scale)
-            #print(latent)
-            #print(latent.sample().shape)
-            #logit = tf.layers.dense(latent.sample(), np.prod(second_layer.shape))
-            logit = latent.sample(self.samples)
-            #print(logit.shape)
-            logit = tf.reshape(logit, [-1] + second_layer.shape.as_list())
-            #print(logit.shape)
-            logit = tf.reduce_mean(logit, axis=0)
-            #print(logit.shape)
-            #logit = tf.reduce_mean(tf.contrib.distributions.Independent(tf.contrib.distributions.Bernoulli(logit), 2).mean(), axis=0)
-            #print(tt.shape)
-            #shape_deconv = [self.batch_size, self.image_size[0] // 8, self.image_size[1] // 8, self.gf_dim]
-            #shape_deconv2 = [self.batch_size, self.image_size[0] // 4, self.image_size[1] // 4, self.gf_dim]
 
-            #first_layer_decode = relu(deconv2d(logit, output_shape=shape_deconv, k_h=3, k_w=3, name='decode_1', reuse=reuse),useSELU=self.useSELU)
-            #second_layer_decode = relu(deconv2d(first_layer_decode, output_shape=shape_deconv2, k_h=3, k_w=3, name='decode_2', reuse=reuse), useSELU=self.useSELU)
-            #return second_layer_decode
-            return logit, latent
+            logit = latent.sample(self.samples)
+            logit = tf.reshape(logit, [-1] + second_layer.shape.as_list())
+            logit = tf.reduce_mean(logit, axis=0)
+
+            return logit
+
 
     def dec_cnn(self, h_comb, res_connect, reuse=False):
         #new
@@ -499,18 +485,14 @@ class MCNET(object):
         print(" [*] Reading checkpoints...")
 
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
-        if ckpt is None and False:
-            self.saver.restore(
-                sess, '/lhome/lucala/scripts/MCNet/models/paper_models/KTH/MCNET.model-98502')
-            return True
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
             if model_name is None:
                 model_name = ckpt_name
             self.saver.restore(sess, os.path.join(checkpoint_dir, model_name))
-            return True
+            return True, ckpt
         else:
-            return False
+            return False, ckpt
 
     def add_input_to_generated_data(self, generated_data, input_data):
         combined_data = []
@@ -548,30 +530,10 @@ class MCNET(object):
             self.max_labels = tf.reduce_max(labels)
             self.min_labels = tf.reduce_min(labels)
             print(label_shape)
-            cross_entropy = 1.0 / label_shape[0] / label_shape[3] * \
+            cross_entropy = - 1.0 / label_shape[0] / label_shape[3] * \
                 tf.reduce_sum(tf.multiply(
                     labels * tf.log(predictions + epsilon) +
                     (1 - labels) * tf.log(1 - predictions + epsilon), coefficient))
             cross_entropy_mean = tf.reduce_mean(
                 cross_entropy, name="cross_entropy")
             return cross_entropy_mean
-        
-    def img_cross_entropy(self, logits,y):
-        #print("printing shapes:")
-        #print (logits.get_shape(),y.get_shape())
-        shape = logits.get_shape()
-        #dim = shape[0]*shape[1]*shape[2]*shape[3]*shape[4]
-        dim = np.prod(shape)
-        logits=tf.reshape(logits,[dim,1])
-        y=tf.reshape(y,[dim,1])
-        #print (logits.get_shape(),y.get_shape())
-        logits = (logits + 1) / 2.0
-        y = (y + 1) / 2.0
-        logits = tf.clip_by_value(logits, 0, 1)
-        y = tf.clip_by_value(y, 0, 1)
-        shape_list = shape.as_list()
-        epsilon = tf.constant(1e-10, dtype=tf.float32, name="epsilon2")
-        #cross_entropy = tf.reduce_mean(tf.reduce_sum(y * tf.log(logits+epsilon), reduction_indices=[1]))
-        #return cross_entropy
-        return tf.reduce_mean(tf.square(logits-y)) #MSE
-        #return tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=logits,labels=y) )

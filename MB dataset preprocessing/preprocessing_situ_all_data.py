@@ -116,13 +116,12 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
         occupancy_array = np.mean(occupancy_array, axis=2)
     occlusion_array = createOcclusionMap(occupancy_array)
     occupancy_mask = createOccupancyMask(occupancy_img, occlusion_array, thresh)
-    #occluded_array = createOcclusionImages(occupancy_mask, occlusion_array)
+
     transformation_matrix = calcImageTranslation(occupancy_array, yaw_rate, speed)
     occupancy_buffer.append(occupancy_mask)
     occlusion_buffer.append(occlusion_array)
     transformation_buffer.append(transformation_matrix)
-    #for testing
-    #return occupancy_mask, occlusion_array#, transformation_matrix
+
     if len(occupancy_buffer) >= seq_length:
         compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer)
         return_camera_rgb.append(np.array(rgb_buffer))
@@ -130,7 +129,6 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
         return_camera_depth.append(np.array(depth_buffer))
         return_direction.append(direction_buffer)
         if len(return_clips) >= samples_per_record:
-            #return return_clips
             convert_tfrecord(return_clips, np.array(return_camera_rgb), np.array(return_camera_segmentation), np.array(return_camera_depth), np.array(return_direction).astype(np.uint8))
             idnr += 1
             return_clips = []
