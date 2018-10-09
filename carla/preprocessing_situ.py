@@ -10,11 +10,8 @@ from tqdm import tqdm
 import tensorflow as tf
 from PIL import Image, ImageDraw, ImageOps
 
-dest_path = 'F:/selfdriving-data/carla_tfrecords/'
-if not os.path.exists(dest_path):
-    os.makedirs(dest_path)
-    
-prefix = 'test'
+dest_path = -1
+prefix = -1
 samples_per_record = 10
 K = 9
 T = 10
@@ -38,6 +35,46 @@ occlusion_buffer = []
 return_clips = []
 return_transformation = []
 idnr = 0
+
+def set_dest_path(path, _samples_per_record, _K, _T, _image_size, _seq_length, _step_size):
+    global dest_path
+    global samples_per_record
+    global K, T, prescale, crop_size, image_size, seq_length
+    global step_size, thresh
+    dest_path = path
+    if not os.path.exists(path):
+        os.makedirs(path)
+        
+    samples_per_record = _samples_per_record
+    K = _K
+    T = _T
+    prescale = _prescale
+    crop_size = _image_size
+    image_size = _image_size
+    seq_length = _seq_length
+    step_size = _step_size
+    
+def update_episode_reset_globals(pfx):
+    global prefix, occupancy_buffer, occlusion_buffer, transformation_buffer
+    global return_clips, return_transformation, rgb_buffer, depth_buffer
+    global segmentation_buffer, return_camera_rgb, return_camera_segmentation, return_camera_depth
+    global idnr, data_size, direction_buffer, return_direction
+    prefix = pfx
+    occupancy_buffer = []
+    transformation_buffer = []
+    occlusion_buffer = []
+    return_clips = []
+    return_transformation = []
+    rgb_buffer = []
+    depth_buffer = []
+    segmentation_buffer = []
+    return_camera_rgb = []
+    return_camera_segmentation = []
+    return_camera_depth = []
+    idnr = 0
+    data_size = []
+    direction_buffer = []
+    return_direction = []
 
 def main(img, yaw_rate, speed):
     global occupancy_buffer

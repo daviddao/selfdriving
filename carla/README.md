@@ -38,8 +38,18 @@ Execute the scripts while the CARLA server is running. Make sure that the port s
   - data: Store only grid maps or also RGB, segmentation and depth.
   - dest-path: Location to store generated data.
   - no-misbehaviour: Episode will be discarded if violation is detected (collision of any sorts).
+  - episode: Number of episodes to run. At every new episode the simulator resets the vehicle position to a new starting location.
+  - frames: Number of frames per episode.
+  
+ The following arguments can also be passed to the gathering script and determine how the data is stored in the TFRecord file.
+  - samples-per-record: Number of sequences per TFRecord.
+  - K: Number of frames to observe before prediction.
+  - T: Number of frames to predict.
+  - image-size: Size of grid map.
+  - seq-length: How many frames per Sequence. Has to be at least K+T+1. Useful when testing different (K,T) combinations.
+  - step-size: Number of frames to skip between sequences.
 
 Run data gathering code while CARLA server is running with
 ```
-python gather_data_situ.py --autopilot --images-to-disk --data=True --dest-path='./output/'
+python gather_data_situ.py --autopilot --images-to-disk --data=True --dest-path='./output/' --episode=100 --frames=500 --samples-per-record=20 --K=9 --T=10 --image-size=96 --seq-length=20 --step-size=5
 ```

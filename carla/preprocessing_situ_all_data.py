@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageOps
 dest_path = None
 prefix = None
 
-#SETTINGS:
+#SETTINGS: These values are set in set_dest_path
 #number of samples per tfrecord, one sample equals one sequence
 samples_per_record = 20
 #number of frames used before starting prediction
@@ -54,29 +54,29 @@ direction_buffer = []
 return_direction = []
 episode = 0
 
-def set_dest_path(path):
+def set_dest_path(path, _samples_per_record, _K, _T, _image_size, _seq_length, _step_size):
     global dest_path
+    global samples_per_record
+    global K, T, prescale, crop_size, image_size, seq_length
+    global step_size, thresh
     dest_path = path
     if not os.path.exists(path):
         os.makedirs(path)
+        
+    samples_per_record = _samples_per_record
+    K = _K
+    T = _T
+    prescale = _prescale
+    crop_size = _image_size
+    image_size = _image_size
+    seq_length = _seq_length
+    step_size = _step_size
 
 def update_episode_reset_globals(pfx):
-    global prefix
-    global occupancy_buffer
-    global occlusion_buffer
-    global transformation_buffer
-    global return_clips
-    global return_transformation
-    global rgb_buffer
-    global depth_buffer
-    global segmentation_buffer
-    global return_camera_rgb
-    global return_camera_segmentation
-    global return_camera_depth
-    global idnr
-    global data_size
-    global direction_buffer
-    global return_direction
+    global prefix, occupancy_buffer, occlusion_buffer, transformation_buffer
+    global return_clips, return_transformation, rgb_buffer, depth_buffer
+    global segmentation_buffer, return_camera_rgb, return_camera_segmentation, return_camera_depth
+    global idnr, data_size, direction_buffer, return_direction
     prefix = pfx
     occupancy_buffer = []
     transformation_buffer = []
@@ -95,21 +95,10 @@ def update_episode_reset_globals(pfx):
     return_direction = []
 
 def main(img, rgb, depth, segmentation, yaw_rate, speed):
-    global occupancy_buffer
-    global occlusion_buffer
-    global transformation_buffer
-    global return_clips
-    global return_transformation
-    global rgb_buffer
-    global depth_buffer
-    global segmentation_buffer
-    global return_camera_rgb
-    global return_camera_segmentation
-    global return_camera_depth
-    global idnr
-    global data_size
-    global direction_buffer
-    global return_direction
+    global prefix, occupancy_buffer, occlusion_buffer, transformation_buffer
+    global return_clips, return_transformation, rgb_buffer, depth_buffer
+    global segmentation_buffer, return_camera_rgb, return_camera_segmentation, return_camera_depth
+    global idnr, data_size, direction_buffer, return_direction
     
     #find the direction (left,right,straight)
     if yaw_rate < -0.5: #going left
@@ -159,7 +148,6 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
             return_camera_segmentation = []
             return_camera_depth = []
             return_direction = []
-            
             
         del occupancy_buffer[:step_size]
         del occlusion_buffer[:step_size]

@@ -58,9 +58,9 @@ def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
     return yaw, yaw_rate, player_measurements.forward_speed, prev_time
 
 def run_carla_client(args):
-    # Here we will run 100 episodes with 500 frames each.
-    number_of_episodes = 100
-    frames_per_episode = 500
+    # Here we will run args._episode episodes with args._frames frames each.
+    number_of_episodes = args._episode
+    frames_per_episode = args._frames
 
     with make_carla_client(args.host, args.port, timeout=100000) as client:
         print('CarlaClient connected')
@@ -112,7 +112,7 @@ def run_carla_client(args):
                 os.makedirs(file_loc)
             
             #set destination path for the tfrecords
-            preprocessing_situ_all_data.set_dest_path(file_loc)
+            preprocessing_situ_all_data.set_dest_path(file_loc, args._samples_per_record, args._K, args._T, args._image_size, args._seq_length, args._step_size)
             
             print('Starting new episode at %r...' % scene.map_name)
             client.start_episode(player_start)
@@ -289,6 +289,22 @@ def main():
         dest='no_misbehaviour',
         default=True,
         help='Should Episode be discarded if violation was detected?')
+    argparser.add_argument("--episode", type=int, dest="_episode", default=100,
+                        help="Number of episodes to run.")
+    argparser.add_argument("--frames", type=int, dest="_frames", default=500,
+                        help="Number of frames per episode.")
+    argparser.add_argument("--samples-per-record", type=int, dest="_samples_per_record", default=20,
+                        help="Number of sequences per TFRecord.")
+    argparser.add_argument("--K", type=int, dest="_K", default=9,
+                        help="Number of frames to observe before prediction.")
+    argparser.add_argument("--T", type=int, dest="_T", default=10,
+                        help="Number of frames to predict.")
+    argparser.add_argument("--image-size", type=int, dest="_image_size", default=96,
+                        help="Size of grid map.")
+    argparser.add_argument("--seq-length", type=int, dest="_seq_length", default=40,
+                        help="How many frames per Sequence. Has to be at least K+T+1.")
+    argparser.add_argument("--step-size", type=int, dest="_step_size", default=5,
+                        help="Number of frames to skip between sequences.")
 
     args = argparser.parse_args()
 

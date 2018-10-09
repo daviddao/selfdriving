@@ -28,7 +28,7 @@ from os import listdir, makedirs, system
 from os.path import exists
 from argparse import ArgumentParser
 from skimage.draw import line_aa
-import preprocessing_situ_all_data as pp
+import ../preprocessing_situ_all_data as pp
 
 thresh = 96
 
@@ -153,16 +153,8 @@ def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_bu
         all_transformation.insert(0, np.zeros([seq_length, 3, 8], dtype=np.float32))
 
 def preprocessing(img, rgb, depth, segmentation, yaw_rate, speed):
-    global occupancy_buffer
-    global occlusion_buffer
-    global transformation_buffer
-    global rgb_buffer
-    global depth_buffer
-    global segmentation_buffer
-    global data_size
-    global direction_buffer
-    global return_clips
-    global return_transformation
+    global occupancy_buffer, occlusion_buffer, transformation_buffer, rgb_buffer, depth_buffer
+    global segmentation_buffer, data_size, direction_buffer, return_clips, return_transformation
     seq_length = K + 1
     
     #find the direction (left,right,straight)
@@ -217,14 +209,7 @@ def preprocessing(img, rgb, depth, segmentation, yaw_rate, speed):
 
 
 def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80, K_i=9, T_i=10, seq_steps=1, useDenseBlock=False, samples=1):
-    global K
-    global T
-    global sess
-    global model
-    global image_size
-    global data_h
-    global data_w
-    global canvas
+    global K, T, sess, model, image_size, data_h, data_w, canvas
     root = tk.Tk()
     canvas = tk.Canvas(root, width=(data_w_i*3+data_h_i), height=(data_h_i*T_i), bd=0, highlightthickness=0)
     canvas.pack()

@@ -101,14 +101,10 @@ def load_tracklets_for_frames(n_frames, xml_path):
 
     return (frame_tracklets, frame_tracklets_types)
 
-#file_loc = '/mnt/ds3lab-scratch/lucala/new_dataset/all_data/'
-#storage_loc = '/mnt/ds3lab-scratch/lucala/process_MB_large_data_format/tfrecords/'
-def main(drive, date, storage_loc, prefix):
-    preprocessing_situ_all_data.set_dest_path(storage_loc)
+def main(drive, date, storage_loc, prefix, _samples_per_record, _K, _T, _image_size, _seq_length, _step_size):
+    preprocessing_situ_all_data.set_dest_path(storage_loc, _samples_per_record, _K, _T, _image_size, _seq_length, _step_size)
     preprocessing_situ_all_data.update_episode(prefix)
     ind = 0
-    #date = '2011_09_26'
-    #drive = '0005'
     dataset = load_dataset(date, drive)
     tracklet_rects, tracklet_types = load_tracklets_for_frames(len(list(dataset.velo)), 'data/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(date, date, drive))
 
@@ -220,6 +216,18 @@ if __name__ == "__main__":
                         help="where should tfRecords be stored?")
     parser.add_argument("--prefix", type=str, dest="prefix", default="data",
                         help="string prepended to tfRecord name.")
+    parser.add_argument("--samples-per-record", type=int, dest="_samples_per_record", default=20,
+                        help="Number of sequences per TFRecord.")
+    parser.add_argument("--K", type=int, dest="_K", default=9,
+                        help="Number of frames to observe before prediction.")
+    parser.add_argument("--T", type=int, dest="_T", default=10,
+                        help="Number of frames to predict.")
+    parser.add_argument("--image-size", type=int, dest="_image_size", default=96,
+                        help="Size of grid map.")
+    parser.add_argument("--seq-length", type=int, dest="_seq_length", default=40,
+                        help="How many frames per Sequence. Has to be at least K+T+1.")
+    parser.add_argument("--step-size", type=int, dest="_step_size", default=5,
+                        help="Number of frames to skip between sequences.")
 
     args = parser.parse_args()
     main(**vars(args))

@@ -44,11 +44,23 @@ direction_buffer = []
 return_direction = []
 episode = 0
 
-def set_dest_path(path):
+def set_dest_path(path, _samples_per_record, _K, _T, _image_size, _seq_length, _step_size):
     global dest_path
+    global samples_per_record
+    global K, T, prescale, crop_size, image_size, seq_length
+    global step_size, thresh
     dest_path = path
     if not os.path.exists(path):
         os.makedirs(path)
+        
+    samples_per_record = _samples_per_record
+    K = _K
+    T = _T
+    prescale = _prescale
+    crop_size = _image_size
+    image_size = _image_size
+    seq_length = _seq_length
+    step_size = _step_size
 
 def update_episode(pfx):
     global prefix
