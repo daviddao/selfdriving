@@ -25,10 +25,44 @@ import threading
 import datetime
 from PIL import Image
 
+def tf_rad2deg(rad):
+    pi_on_180 = 0.017453292519943295
+    return rad / pi_on_180
+
+def inverseTransMat(nextTf):
+    z = tf.zeros([1,1], dtype=np.float32)
+    #mat[0,:] = nextTf[0,0:3]
+    #mat[1,:] = nextTf[0,3:6]
+    matFull = tf.clip_by_value(nextTf,-1,1)
+    #mean theta extracted from matrix, only use ARCSIN for +- range, take directly from [3,8]
+    theta = -(tf.asin(-matFull[0,1])+tf.asin(matFull[0,3]))/2
+    imsize = 96 // 2
+    pixel_diff_y = matFull[1,2] * ((imsize - 1) / 2.0)
+    pixel_diff_x = matFull[0,2] * ((imsize - 1) / 2.0)
+    py = pixel_diff_y / tf.cos(theta)
+    px = pixel_diff_x / tf.sin(theta)
+    pixel_diff = tf.cond(tf.equal(tf.cos(theta),0), lambda: px, lambda: (px+py)/2)
+    pixel_diff = tf.cond(tf.equal(tf.sin(theta),0), lambda: py, lambda: pixel_diff)
+    #if tf.is_inf(px) or tf.is_nan(px):
+    #    pixel_diff = py
+    #elif tf.is_inf(py) or tf.is_nan(py):
+    #    pixel_diff = px
+    #else:
+    #    pixel_diff = (px+py)/2
+    pixel_size = 45.6 * 1.0 / imsize
+    period_duration = 1.0 / 24
+    vel = pixel_diff * pixel_size / period_duration
+    yaw_rate = tf_rad2deg(theta) / period_duration
+    return vel, yaw_rate
+
 def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
          T, num_iter, gpu, sequence_steps, d_input_frames, tfrecordname, useSELU=True,
          useCombinedMask=False, predOcclValue=1, img_save_freq=200, model_name="",
          useSharpen=False, useDenseBlock=True, samples=1, data_path_scratch="", model_path_scratch=""):
+
+    if tfrecordname == "":
+        tfrecordname = glob.glob(data_path_scratch+'/*.tfrecord')[0].split('/')[-1].split('.')[0]
+        print("Info: No TFRecord name provided. Using random TFRecord name in directory to parse info: " + tfrecordname)
 
     margin = 0.3
     updateD = True
@@ -53,7 +87,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
               + "_selu=" + str(useSELU)
               + "_comb=" + str(useCombinedMask)
               + "_predV=" + str(predOcclValue))
-
+              #+ "_datetime=" + str(date_now.hour)+":"+str(date_now.minute)+"-"+str(date_now.day)+"-"+str(date_now.month)+"-"+str(date_now.year))
 
     print("\n" + prefix + "\n")
     checkpoint_dir = model_path_scratch + "models/" + prefix + "/"
@@ -171,7 +205,9 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
             dep_cam = tf.expand_dims(dep_cam[:(K+T)*sequence_steps,:,:],-1)
             direction = tf.cast(direction[:(K+T)*sequence_steps,:], tf.float32)
 
-            return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction
+            speedyaw = tf.convert_to_tensor([inverseTransMat(tf_matrix[y,:]) for y in range((K+T)*sequence_steps)],dtype=tf.float32)
+
+            return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction, speedyaw
 
         tfrecordsLoc = data_path_scratch + tfrecordname
         if os.path.isdir(tfrecordsLoc):
@@ -237,11 +273,9 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         #create iterator
         iterator = dataset.make_initializable_iterator()
 
-        #def make_prior():
         loc = tf.zeros(model.gf_dim)
         scale = tf.ones(model.gf_dim)
         prior = tf.contrib.distributions.MultivariateNormalDiag(loc, scale)
-        #return tfd.MultivariateNormalDiag(loc, scale)
 
         print("Setup GPUs...")
         print("Using "+str(num_gpu)+" GPUs...")
@@ -250,10 +284,10 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
             for i in range(len(gpu)):
                   with tf.device('/device:GPU:%d' % gpu[i]):
                         with tf.name_scope('Tower_%d' % (i)) as scope:
-                            seq_batch, input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction = iterator.get_next()
+                            seq_batch, input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction, speedyaw = iterator.get_next()
 
                             # Construct the model
-                            pred, gm_pred, pre_gm_pred, rgb_pred, seg_pred, dep_pred, grid_posterior, img_posterior, trans_pred, dir_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction, i)
+                            pred, gm_pred, pre_gm_pred, rgb_pred, seg_pred, dep_pred, grid_posterior, img_posterior, trans_pred, dir_pred, speedyaw_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction, i)
 
                             # Calculate the loss for this tower
                             model.target = seq_batch
@@ -265,10 +299,13 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
                             model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
 
+                            model.speedyaw = tf.reshape(speedyaw,[batch_size*(K+T)*sequence_steps,2])
+                            model.speedyaw_pred = tf.reshape(speedyaw_pred,[batch_size*(K+T)*sequence_steps,2])
                             model.transformation_error = tf.reduce_mean(tf.squared_difference(transformation_batch, tf.transpose(trans_pred,[1,0,2,3])))
+                            model.speedyaw_error = tf.reduce_mean(tf.squared_difference(model.speedyaw,model.speedyaw_pred))
                             model.direction_error = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf.transpose(dir_pred,[1,0,2]),labels=direction))
-                            model.odometry_error = model.direction_error + model.transformation_error
-
+                            model.odometry_error = model.direction_error + model.transformation_error + model.speedyaw_error
+                            
                             model.rgb = rgb_cam
                             model.seg = seg_cam
                             model.dep = dep_cam
@@ -389,11 +426,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
 
     with graph.as_default():
-        #with tf.device('/cpu:0'):
         # Average the gradients
         grads = average_gradients(tower_grads)
-
-        # apply the gradients with our optimizers
         train = opt_E.apply_gradients(grads, global_step=global_step)
 
         if beta != 0:
@@ -463,6 +497,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                 cam_div_mean_err = div_mean.eval(session=sess)
                 cam_mean_err = L_cam_mean.eval(session=sess)
                 odometry_error = model.odometry_error.eval(session=sess)
+                speedyaw_error = model.speedyaw_error.eval(session=sess)
 
                 training_models_info = ""
                 if not updateD:
@@ -486,19 +521,20 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                     % (iters_G+prevNr, iters+prevNr, time.time() - start_time, errD, errG, img_err, cam_err, cam_mean_err, cam_div_mean_err, training_models_info)
                 )
                 print(
-                    "Iters: [%5d|%5d] d_fake: %.8f, d_real: %.8f, maxPred: %4.4f, minPred: %4.4f, maxLabels: %4.4f, minLabels: %4.4f, odometry_loss: %.8f"
-                    % (iters_G+prevNr, iters+prevNr, errD_fake, errD_real, max_pred, min_pred, max_labels, min_labels, odometry_error)
+                    "Iters: [%5d|%5d] d_fake: %.8f, d_real: %.8f, maxPred: %4.4f, minPred: %4.4f, maxLabels: %4.4f, minLabels: %4.4f, odometry_loss: %.8f, speedyaw_error: %.8f"
+                    % (iters_G+prevNr, iters+prevNr, errD_fake, errD_real, max_pred, min_pred, max_labels, min_labels, odometry_error, speedyaw_error)
                 )
 
                 if np.mod(counter, img_save_freq) == 1:
-                    #print(np.reshape(transformation_batch[:,:,0,:6], [transformation_batch.shape[0], transformation_batch.shape[1], 2, 3]))
-                    samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask, model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred])
+                    samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred, sy, sy_pred = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask, model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred, model.speedyaw, model.speedyaw_pred])
+
+                    txtname = samples_dir + "speedyaw_" + str(counter+prevNr).zfill(7) + ".txt"
+                    np.savetxt(txtname, np.concatenate([sy, sy_pred],axis=1))
                     curr_frame = []
                     for seq_step in range(T):
                         curr_frame.append(np.concatenate([rgb[0,K+seq_step,:,:,:],rgb_pred[0,K+seq_step,:,:,:],
                                   seg[0,K+seq_step,:,:,:],seg_pred[0,K+seq_step,:,:,:],
                                   np.tile(dep[0,K+seq_step,:,:,:],[1,1,3]),np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
-                    #print(np.concatenate(curr_frame,0).shape)
                     save_frame = Image.fromarray(np.uint8((np.concatenate(curr_frame,0)+1)/2*255))
                     save_frame.save(samples_dir + "train_cam_" + str(iters+prevNr).zfill(7)  + "_" + str(seq_step) + ".png")
                     for seq_step in range(sequence_steps * 2):
@@ -541,8 +577,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                     print("#"*50)
                     model.save(sess, checkpoint_dir, counter+prevNr)
 
-
-
+                    
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
@@ -592,13 +627,13 @@ if __name__ == "__main__":
                         default=False, help="If sharpening should be used. DEPRECATED.")
     parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
                         default="all_in_one_new_shard_imgsze=96_seqlen=4_K=9_T=10_all", help="tfrecord name")
-    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=False,
+    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")
-    parser.add_argument("--data_path_scratch", type=str, dest="data_path_scratch", default="/mnt/ds3lab-scratch/lucala/phlippe/dataset/",
+    parser.add_argument("--data_path_scratch", type=str, dest="data_path_scratch", default="/mnt/ds3lab-scratch/lucala/dataset/CARLA/",
                         help="where are tfRecords stored?")
-    parser.add_argument("--model_path_scratch", type=str, dest="model_path_scratch", default="/mnt/ds3lab-scratch/lucala/phlippe/",
+    parser.add_argument("--model_path_scratch", type=str, dest="model_path_scratch", default="/mnt/ds3lab-scratch/lucala/models/",
                         help="where are tfRecords stored?")
     parser.add_argument("--data_w", type=int, dest="data_w",
                         default=240, help="rgb/seg/depth image width size")

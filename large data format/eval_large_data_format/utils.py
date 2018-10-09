@@ -170,7 +170,7 @@ def load_s1m_data(f_name, data_path, trainlist, K, T):
     return seq, diff
 
 def parse_tfrecord_name(tfrecordname):
-    values = tfrecordname.split('_')
+    values = tfrecordname.split('.')[0].split('_')
     #print(values)
     dict = {}
     # start at second index, first element contains name

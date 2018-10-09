@@ -72,6 +72,7 @@ class MCNET(object):
         img_posterior = []
         trans_pred = []
         dir_pred = []
+        speedyaw_pred = []
         for iter_index in range(self.iterations):
             print("Iteration " + str(iter_index) + " on tower_"+str(tower_id))
             with tf.name_scope('iter_%d' % (iter_index)):
@@ -95,13 +96,14 @@ class MCNET(object):
                     #auxiliary data part
                     with tf.variable_scope("CAM", reuse=reuse):
                         cell, res = self.conv_data(rgb_cam[:,timestep], seg_cam[:,timestep], dep_cam[:,timestep], direction[:, timestep], motion_enc_input, transform_matrix, reuse)
-                        p_rgb, p_seg, p_dep, posterior, p_trans, p_dir = self.deconv_data(cell, res, reuse)
+                        p_rgb, p_seg, p_dep, posterior, p_trans, p_dir, p_sy = self.deconv_data(cell, res, reuse)
                         rgb_pred.append(p_rgb)
                         seg_pred.append(p_seg)
                         dep_pred.append(p_dep)
                         img_posterior.append(posterior)
                         trans_pred.append(p_trans)
                         dir_pred.append(p_dir)
+                        speedyaw_pred.append(p_sy)
                     reuse = True
 
                 # Prediction sequence
@@ -123,15 +125,16 @@ class MCNET(object):
                     #auxiliary data part
                     with tf.variable_scope("CAM", reuse=reuse):
                         cell, res = self.conv_data(rgb_pred[-1], seg_pred[-1], dep_pred[-1], dir_pred[-1], motion_enc_input, transform_matrix, reuse)
-                        p_rgb, p_seg, p_dep, posterior, p_trans, p_dir = self.deconv_data(cell, res, reuse)
+                        p_rgb, p_seg, p_dep, posterior, p_trans, p_dir, p_sy = self.deconv_data(cell, res, reuse)
                         rgb_pred.append(p_rgb)
                         seg_pred.append(p_seg)
                         dep_pred.append(p_dep)
                         img_posterior.append(posterior)
                         trans_pred.append(p_trans)
                         dir_pred.append(p_dir)
+                        speedyaw_pred.append(p_sy)
 
-        return pred, gm_pred, pre_gm_pred, rgb_pred, seg_pred, dep_pred, grid_posterior, img_posterior, trans_pred, dir_pred
+        return pred, gm_pred, pre_gm_pred, rgb_pred, seg_pred, dep_pred, grid_posterior, img_posterior, trans_pred, dir_pred, speedyaw_pred
 
     def conv_data(self, rgb, seg, dep, direction, gridmap, transform_matrix, reuse):
                 #insipred by SNA model from https://arxiv.org/pdf/1710.05268.pdf
@@ -266,6 +269,8 @@ class MCNET(object):
         dir2 = tf.layers.dense(dir1, 1*2, tf.nn.selu)
         tl_out = tf.reshape(tl2, [self.batch_size*1,3,8])
         dir_out = tf.reshape(dir2, [self.batch_size,2])
+        #first value contains vel, second yaw_rate, multiply by 100 & 20 for tanh -1,1 range extension
+        sy_out = tf.concat([tf.layers.dense(tl2, 1, tf.nn.tanh)*100, tf.layers.dense(tl2, 1, tf.nn.tanh)*20], axis=1)
 
         out_shape2 = [self.batch_size, self.data_size[0] // 4, self.data_size[1] // 4, self.gf_dim]
         deconv_rgb_1 = relu(deconv2d(rgb_deconv1, output_shape=out_shape2, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_rgb_1', reuse=reuse), useSELU=self.useSELU)
@@ -338,7 +343,7 @@ class MCNET(object):
         deconv_seg_5 = tanh(deconv2d(deconv_seg_4, output_shape=out_shape_seg_4, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_seg_5', reuse=reuse))
         deconv_dep_5 = tanh(deconv2d(deconv_dep_4, output_shape=out_shape_dep_4, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_dep_5', reuse=reuse))
 
-        return deconv_rgb_5, deconv_seg_5, deconv_dep_5, latent, tl_out, dir_out
+        return deconv_rgb_5, deconv_seg_5, deconv_dep_5, latent, tl_out, dir_out, sy_out
 
 
     def motion_enc(self, motion_in, reuse):
@@ -551,3 +556,23 @@ class MCNET(object):
             cross_entropy_mean = tf.reduce_mean(
                 cross_entropy, name="cross_entropy")
             return cross_entropy_mean
+        
+    def img_cross_entropy(self, logits,y):
+        #print("printing shapes:")
+        #print (logits.get_shape(),y.get_shape())
+        shape = logits.get_shape()
+        #dim = shape[0]*shape[1]*shape[2]*shape[3]*shape[4]
+        dim = np.prod(shape)
+        logits=tf.reshape(logits,[dim,1])
+        y=tf.reshape(y,[dim,1])
+        #print (logits.get_shape(),y.get_shape())
+        logits = (logits + 1) / 2.0
+        y = (y + 1) / 2.0
+        logits = tf.clip_by_value(logits, 0, 1)
+        y = tf.clip_by_value(y, 0, 1)
+        shape_list = shape.as_list()
+        epsilon = tf.constant(1e-10, dtype=tf.float32, name="epsilon2")
+        #cross_entropy = tf.reduce_mean(tf.reduce_sum(y * tf.log(logits+epsilon), reduction_indices=[1]))
+        #return cross_entropy
+        return tf.reduce_mean(tf.square(logits-y)) #MSE
+        #return tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=logits,labels=y) )
