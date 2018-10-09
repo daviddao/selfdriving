@@ -338,10 +338,10 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
             curr_frame = []
             curr_gif_pred = []
             curr_gif_gt = []
-            rgb = (rgb+1)/2 * 255
+            rgb = (np.clip(rgb,-1,1)+1)/2 * 255
             seg = (seg+1)/2 * 255
             dep = (dep+1)/2 * 255
-            rgb_pred = (rgb_pred+1)/2 * 255
+            rgb_pred = (np.clip(rgb_pred,-1,1)+1)/2 * 255
             seg_pred = (seg_pred+1)/2 * 255
             dep_pred = (dep_pred+1)/2 * 255
             for seq_step in range(K):
@@ -400,7 +400,7 @@ if __name__ == "__main__":
                         help="How many files should be checked?")
     parser.add_argument("--seq_steps", type=int, dest="seq_steps", default=1,
                         help="Number of iterations in model.")
-    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=False,
+    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")
