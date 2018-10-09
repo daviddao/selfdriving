@@ -8,11 +8,14 @@ Every `img-freq` interval the model outputs a text file containing the ground tr
 
 The important files are `train_onmove_distr_dataset.py` which handles the training of the network defined in `move_network_distributed_noGPU.py`. The network uses convolutional LSTM cells defined in `BasicConvLSTMCell.py` and a Spatial Transformer Module defined in `spatial_transformer.py` as well as SELU activation and diluted convolutions defined in `additional_ops.py` and deconvolutional operations defined in `ops.py`. The parsing of the TFRecord filename is done in `utils.py`.
 
+To load and continue training one of our models, download the checkpoint files of a model from `/mnt/ds3lab-scratch/lucala/models/models`. Results of each model can be seen in `/mnt/ds3lab-scratch/lucala/models/samples`.
+
 ## Running training scripts
 Important arguments that can be passed to the script are:
   - CUDA_VISIBLE_DEVICES: Needed for the system to be able to observe the GPUs. Tensorflow will allocate resources to all visible GPUs even if they are not used with the `--gpu` flag.
   - gpu: Array of GPUs to use. Cannot be larger than `CUDA_VISIBLE_DEVICES` and has to start at 0.
   - prefix: String prepended to the model.
+  - denseBlock: Train using the dense block (network of diluted convolutions) or VAE.
   - num-iter: Number of iterations to train.
   - img-freq: Iteration interval between saving model and image output.
   - data-path-scratch: Location where TFRecords are stored.

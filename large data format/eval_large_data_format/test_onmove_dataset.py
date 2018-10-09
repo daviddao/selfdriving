@@ -47,26 +47,14 @@ from skimage.draw import line_aa
 from PIL import Image
 from PIL import ImageDraw
 
-
-def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, useSharpen, num_gpu, include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc):
-    """
-    Main function for running the test. Arguments are passed from the command line
-
-    Args:
-      data_path - Path where the test data is stored. The parent directory must contain a file "test_data_list.txt" where all test file paths are listed
-      prefix - The prefix for the model which should be tested
-      image_size - Size of images which should be used for testing (test images in data_path must have this shape)
-      K - Determines how many images the network will get to see before prediction
-      T - Determines how many images the network should predict
-      gpu - GPU device id
-    """
+def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, useSharpen, num_gpu,
+include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss):
 
     gpu = np.arange(num_gpu)
     #need at least 1 gpu to run code
     assert(num_gpu>=1 and len(gpu)==num_gpu)
 
     print("Setup dataset...")
-    #def input_fn():
     imgsze_tf, seqlen_tf, K_tf, T_tf, fc_tf, nr_samples, datasze_tf = parse_tfrecord_name(tfrecord)
     assert(data_w == datasze_tf[0] and data_h == datasze_tf[1])
     assert(image_size == imgsze_tf)
@@ -116,7 +104,9 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
         dep_cam = tf.expand_dims(dep_cam[:(K+T)*seq_steps,:,:],-1)
         direction = direction[:(K+T)*seq_steps,:]
 
-        return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction
+        speedyaw = tf.convert_to_tensor([inverseTransMat(tf_matrix[y,:]) for y in range((K+T)*sequence_steps)],dtype=tf.float32)
+
+        return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction, speedyaw
 
     tfrecordsLoc = data_path + tfrecord
     #loading from directory containing sharded tfrecords or from one tfrecord
@@ -140,7 +130,8 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
     model = MCNET(image_size=[image_size, image_size], data_size=[data_h, data_w], batch_size=1, K=K,
               T=T, c_dim=1, checkpoint_dir=checkpoint_dir,
               iterations=seq_steps, useSELU=True, motion_map_dims=2,
-              showFutureMaps=False, useGAN=useGAN, useSharpen=useSharpen, useDenseBlock=useDenseBlock, samples=samples)
+              showFutureMaps=False, useGAN=useGAN, useSharpen=useSharpen,
+              useDenseBlock=useDenseBlock, samples=samples, sy_loss=sy_loss)
 
     # Setup model (for details see mcnet_deep_tracking.py)
     model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
@@ -149,10 +140,10 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
         with tf.device("/gpu:%d" % gpu[0]):
 
             #fetch input
-            seq_batch, input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction = iterator.get_next()
+            seq_batch, input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction, speedyaw = iterator.get_next()
 
             # Construct the model
-            pred, trans_pred, pre_trans_pred, rgb_pred, seg_pred, dep_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction)
+            pred, trans_pred, pre_trans_pred, rgb_pred, seg_pred, dep_pred, speedyaw_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction)
 
             model.target = seq_batch
             model.motion_map_tensor = map_batch
@@ -161,15 +152,14 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
             model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
             model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
 
+            model.sy = tf.reshape(speedyaw,[batch_size*(K+T)*sequence_steps,2])
+            model.sy_pred = tf.reshape(speedyaw_pred,[batch_size*(K+T)*sequence_steps,2])
             model.rgb = rgb_cam
             model.seg = seg_cam
             model.dep = dep_cam
             model.rgb_pred = tf.stack(rgb_pred,1)
             model.seg_pred = tf.stack(seg_pred,1)
             model.dep_pred = tf.stack(dep_pred,1)
-            model.rgb_diff = tf.reduce_mean(tf.square(model.rgb_pred - model.rgb))
-            model.seg_diff = tf.reduce_mean(tf.square(model.seg_pred - model.seg))
-            model.dep_diff = tf.reduce_mean(tf.square(model.dep_pred - model.dep))
 
             if useGAN:
                 start_frame = 0
@@ -254,7 +244,8 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
         sess.run(iterator.initializer)
         for i in tqdm(range(num_iters)):
 
-            samples, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred = sess.run([model.G, model.target, model.motion_map_tensor, model.loss_occlusion_mask, model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred])
+            samples, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred, sy, sy_pred = sess.run([model.G, model.target, model.motion_map_tensor, model.loss_occlusion_mask,
+            model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred, model.sy, model.sy_pred])
 
             # Save predictions and PSNR/SSIM error
             savedir = "../results/images/Gridmap/" + prefix + "/" + "save" + str(i)
@@ -362,9 +353,34 @@ def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, 
                             ".gif", curr_gif_pred, 'GIF', **kwargs)
             imageio.mimsave(savedir + "/img_gt_" + str(i).zfill(3) +
                             ".gif", curr_gif_gt, 'GIF', **kwargs)
+            if sy_loss:
+                txtname = savedir + "/speedyaw_" + str(i).zfill(3) + ".txt"
+                np.savetxt(txtname, np.concatenate([sy, sy_pred],axis=1))
         np.savez(save_path, psnr=psnr_err, ssim=ssim_err)
         print("Results saved to " + save_path)
     print("Done.")
+
+def tf_rad2deg(rad):
+    pi_on_180 = 0.017453292519943295
+    return rad / pi_on_180
+
+def inverseTransMat(nextTf):
+    z = tf.zeros([1,1], dtype=np.float32)
+    matFull = tf.clip_by_value(nextTf,-1,1)
+    #mean theta extracted from matrix, only use ARCSIN for +- range, take directly from [3,8]
+    theta = -(tf.asin(-matFull[0,1])+tf.asin(matFull[0,3]))/2
+    imsize = 96 // 2
+    pixel_diff_y = matFull[1,2] * ((imsize - 1) / 2.0)
+    pixel_diff_x = matFull[0,2] * ((imsize - 1) / 2.0)
+    py = pixel_diff_y / tf.cos(theta)
+    px = pixel_diff_x / tf.sin(theta)
+    pixel_diff = tf.cond(tf.equal(tf.cos(theta),0), lambda: px, lambda: (px+py)/2)
+    pixel_diff = tf.cond(tf.equal(tf.sin(theta),0), lambda: py, lambda: pixel_diff)
+    pixel_size = 45.6 * 1.0 / imsize
+    period_duration = 1.0 / 24
+    vel = pixel_diff * pixel_size / period_duration
+    yaw_rate = tf_rad2deg(theta) / period_duration
+    return vel, yaw_rate
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -377,7 +393,7 @@ def str2bool(v):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--prefix", type=str, dest="prefix",
-                        default="VAE_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
+                        default="pure-sy-onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
     parser.add_argument("--image_size", type=int, dest="image_size",
                         default=96, help="Pre-trained model")
     parser.add_argument("--K", type=int, dest="K",
@@ -388,28 +404,30 @@ if __name__ == "__main__":
                         default=False, help="Model trained with GAN?")
     parser.add_argument("--useSharpen", type=str2bool, dest="useSharpen",
                         default=False, help="Model trained with sharpener?")
-    parser.add_argument("--num_gpu", type=int, dest="num_gpu", required=True,
+    parser.add_argument("--num-gpu", type=int, dest="num_gpu", required=True,
                         help="number of gpus")
-    parser.add_argument("--data_path", type=str, dest="data_path", default="./tfrecords/",
+    parser.add_argument("--data-path", type=str, dest="data_path", default="./tfrecords/",
                         help="Path where the test data is stored")
     parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="evaldata_imgsze=96_fc=20_datasze=240x80_seqlen=1_K=9_T=10_size=20",
                         help="Either folder name containing tfrecords or name of single tfrecord.")
     parser.add_argument("--road", type=str2bool, dest="include_road", default=False,
                         help="Should road be included?")
-    parser.add_argument("--num_iters", type=int, dest="num_iters", default=20,
+    parser.add_argument("--num-iters", type=int, dest="num_iters", default=20,
                         help="How many files should be checked?")
-    parser.add_argument("--seq_steps", type=int, dest="seq_steps", default=1,
+    parser.add_argument("--seq-steps", type=int, dest="seq_steps", default=1,
                         help="Number of iterations in model.")
-    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
+    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=False,
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")
-    parser.add_argument("--chckpt_loc", type=str, dest="checkpoint_dir_loc", default="./model/",
+    parser.add_argument("--chckpt-loc", type=str, dest="checkpoint_dir_loc", default="./model/",
                         help="Location of model checkpoint file")
     parser.add_argument("--data_w", type=int, dest="data_w",
                         default=240, help="rgb/seg/depth image width size")
     parser.add_argument("--data_h", type=int, dest="data_h",
                         default=80, help="rgb/seg/depth image width size")
+    parser.add_argument("--speed-yaw-loss", type=str2bool, dest="sy_loss",
+                        default=False, help="Add additional layer in network to compute speed yaw output?")
 
     args = parser.parse_args()
     main(**vars(args))
