@@ -38,3 +38,8 @@ Execute the scripts while the CARLA server is running. Make sure that the port s
   - data: Store only grid maps or also RGB, segmentation and depth.
   - dest-path: Location to store generated data.
   - no-misbehaviour: Episode will be discarded if violation is detected (collision of any sorts).
+
+Run data gathering code while CARLA server is running with
+```
+python gather_data_situ.py --autopilot --images-to-disk --data=True --dest-path='./output/'
+```
