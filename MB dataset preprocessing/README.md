@@ -3,7 +3,7 @@ A short documentation of the MBRDNA scripts.
 
 Note: These scripts are only used to preprocess the MBRDNA dataset. The resulting dataset can be found at `/mnt/ds3lab-scratch/lucala/datasets/MBRDNA`.
 
-# Setting up MBRDNA
+## Setting up MBRDNA
 The raw MBRDNA files can be found at `/mnt/ds3lab-scratch/daod/mercedes/ego_vehicle_at_center`. Download and decompress the files.
 
 Ensure the following naming scheme per frame `x`:
@@ -14,7 +14,7 @@ Ensure the following naming scheme per frame `x`:
 
 Note: This naming scheme can be changed in `convert_MB.py` if required.
 
-# Running conversion scripts
+## Running conversion scripts
 Arguments available:
   - file-loc: Location where raw data is stored.
   - storage-loc: Location where to store TFRecords.

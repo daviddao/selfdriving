@@ -13,15 +13,11 @@ import scipy.io as sio
 
 from move_network_distributed_noGPU import MCNET
 from utils import *
-from load_gridmap import *
 import os
 from os import listdir, makedirs, system
 from os.path import exists
 from argparse import ArgumentParser
-from joblib import Parallel, delayed
 import time
-import _thread
-import threading
 import datetime
 from PIL import Image
 
@@ -60,7 +56,11 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
          useCombinedMask=False, predOcclValue=1, img_save_freq=200, model_name="",
          useSharpen=False, useDenseBlock=True, samples=1, data_path_scratch="", model_path_scratch=""):
 
+    data_path_scratch = data_path_scratch if data_path_scratch[-1] == "/" else data_path_scratch+"/"
+    model_path_scratch = model_path_scratch if model_path_scratch[-1] == "/" else model_path_scratch+"/"
+    tfRecordFolder = False
     if tfrecordname == "":
+        tfRecordFolder = True
         tfrecordname = glob.glob(data_path_scratch+'/*.tfrecord')[0].split('/')[-1].split('.')[0]
         print("Info: No TFRecord name provided. Using random TFRecord name in directory to parse info: " + tfrecordname)
 
@@ -209,18 +209,17 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
             return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction, speedyaw
 
-        tfrecordsLoc = data_path_scratch + tfrecordname
-        if os.path.isdir(tfrecordsLoc):
-            num_records = len(os.listdir(tfrecordsLoc))
+        if tfRecordFolder:
+            num_records = len(os.listdir(data_path_scratch))
             print("Loading from directory. " + str(num_records) + " tfRecords found.")
             len_trainfiles = num_records * nr_samples
-            files = tf.data.Dataset.list_files(tfrecordsLoc + "/" + "*.tfrecord").shuffle(num_records)
+            files = tf.data.Dataset.list_files(data_path_scratch + "*.tfrecord").shuffle(num_records)
             dataset = files.apply(
                 tf.contrib.data.parallel_interleave(lambda x: tf.data.TFRecordDataset(x, num_parallel_reads=256, buffer_size=8*1024*1024),cycle_length=32, sloppy=True))
         else:
             print("Loading from single tfRecord. " + str(nr_samples) + " entries in tfRecord.")
             len_trainfiles = nr_samples
-            dataset = tf.data.TFRecordDataset([tfrecordsLoc + '.tfrecord'])
+            dataset = tf.data.TFRecordDataset([data_path_scratch + tfrecordname + '.tfrecord'])
         dataset = dataset.map(_parse_function, num_parallel_calls=128)
         dataset = dataset.apply(tf.contrib.data.shuffle_and_repeat(1000))
         dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
@@ -228,7 +227,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
 
         print("Setup optimizer...")
-        
+
         if beta != 0:
             opt_D = tf.train.AdamOptimizer(lr_D, beta1=0.5)
 
@@ -305,7 +304,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             model.speedyaw_error = tf.reduce_mean(tf.squared_difference(model.speedyaw,model.speedyaw_pred))
                             model.direction_error = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf.transpose(dir_pred,[1,0,2]),labels=direction))
                             model.odometry_error = model.direction_error + model.transformation_error + model.speedyaw_error
-                            
+
                             model.rgb = rgb_cam
                             model.seg = seg_cam
                             model.dep = dep_cam
@@ -571,13 +570,13 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                         print("Saving sample ...")
                         save_images(samples_seq_step[:, :, :, :], [4, frame_count + 1],
                                     samples_dir + "train_" + str(iters+prevNr).zfill(7) + "_" + str(seq_step) + ".png")
-                if np.mod(counter, 500) == 2:
+                if np.mod(counter, img_save_freq) == 2:
                     print("#"*50)
                     print("Save model...")
                     print("#"*50)
                     model.save(sess, checkpoint_dir, counter+prevNr)
 
-                    
+
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
@@ -605,13 +604,13 @@ if __name__ == "__main__":
                         default=9, help="Number of steps to observe from the past")
     parser.add_argument("--T", type=int, dest="T",
                         default=10, help="Number of steps into the future")
-    parser.add_argument("--num_iter", type=int, dest="num_iter",
+    parser.add_argument("--num-iter", type=int, dest="num_iter",
                         default=100000, help="Number of iterations")
-    parser.add_argument("--seq_steps", type=int, dest="sequence_steps",
+    parser.add_argument("--seq-steps", type=int, dest="sequence_steps",
                         default=1, help="Number of iterations per Sequence (K | T | K | T | ...) - one K + T step is one iteration")
     parser.add_argument("--gpu", type=int, nargs="+", dest="gpu", required=True,
                         help="GPU device id")
-    parser.add_argument("--d_input_frames", type=int, dest="d_input_frames",
+    parser.add_argument("--d-input-frames", type=int, dest="d_input_frames",
                         default=20, help="How many frames the discriminator should get. Has to be at least K+T")
     parser.add_argument("--selu", type=str2bool, dest="useSELU",
                         default=True, help="If SELU should be used instead of RELU")
@@ -619,25 +618,25 @@ if __name__ == "__main__":
                         default=False, help="If SELU should be used instead of RELU")
     parser.add_argument("--predOcclValue", type=int, dest="predOcclValue",
                         default=-1, help="If SELU should be used instead of RELU")
-    parser.add_argument("--imgFreq", type=int, dest="img_save_freq",
+    parser.add_argument("--img-freq", type=int, dest="img_save_freq",
                         default=100, help="If SELU should be used instead of RELU")
     parser.add_argument("--prefix", type=str, dest="model_name",
                         default="", help="Prefix appended to model name for easier search")
     parser.add_argument("--sharpen", type=str2bool, dest="useSharpen",
                         default=False, help="If sharpening should be used. DEPRECATED.")
     parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
-                        default="all_in_one_new_shard_imgsze=96_seqlen=4_K=9_T=10_all", help="tfrecord name")
+                        default="", help="tfrecord name")
     parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")
-    parser.add_argument("--data_path_scratch", type=str, dest="data_path_scratch", default="/mnt/ds3lab-scratch/lucala/dataset/CARLA/",
+    parser.add_argument("--data-path-scratch", type=str, dest="data_path_scratch", default="/mnt/ds3lab-scratch/lucala/dataset/CARLA/",
                         help="where are tfRecords stored?")
-    parser.add_argument("--model_path_scratch", type=str, dest="model_path_scratch", default="/mnt/ds3lab-scratch/lucala/models/",
+    parser.add_argument("--model-path-scratch", type=str, dest="model_path_scratch", default="/mnt/ds3lab-scratch/lucala/models/",
                         help="where are tfRecords stored?")
-    parser.add_argument("--data_w", type=int, dest="data_w",
+    parser.add_argument("--data-w", type=int, dest="data_w",
                         default=240, help="rgb/seg/depth image width size")
-    parser.add_argument("--data_h", type=int, dest="data_h",
+    parser.add_argument("--data-h", type=int, dest="data_h",
                         default=80, help="rgb/seg/depth image width size")
 
     args = parser.parse_args()

@@ -1,7 +1,7 @@
 # CARLA documentation
 A short documentation of the CARLA scripts.
 
-# Setting up CARLA
+## Setting up CARLA
 Follow the instructions for [Windows](https://carla.readthedocs.io/en/latest/how_to_build_on_windows/) or for [Linux](https://carla.readthedocs.io/en/latest/how_to_build_on_linux/), if problems arise their [discord](https://discordapp.com/invite/8kqACuC) channel is a good place to ask for help.
 
 Using the Unreal Editor build a standalone version of the client. When starting the standalone version we used the following arguments:
@@ -13,24 +13,24 @@ Using the Unreal Editor build a standalone version of the client. When starting 
   - fps: Simulation speed, for our work we set it to 10.
   - carla-settings: Takes the path to the `CarlaSettings.ini` file.
 
-# CARLA scripts
+## CARLA scripts
 Copy the python scripts to the subdirectory:
 ```
 /carla/PythonClient
 ```
 Execute the scripts while the CARLA server is running. Make sure that the port set in the `CarlaSettings.ini` and in the scripts match and are not already in use.
 
-## Scripts
+### Scripts
   - CarlaRunPython: Jupyter notebook used to run python scripts.
   - gather_data: gathers frames of RGB, depth, lidar and occupancy and saves to `--dest-path`.
   - gather_data_situ: Gathers frames of RGB, depth, segmentation and occupancy. Uses preprocessing script to immediately convert data into TFRecord.
-  - preprocessing_situ: Helper scripts for `gather_data_situ.py`. Takes frames and bundles them into TFRecord. This version only converts grid maps.
-  - preprocessing_situ_all_data: Helper scripts for `gather_data_situ.py`. Converts all data (RGB/depth/segmentation/grid map).
+  - preprocessing_situ: Helper script for `gather_data_situ.py`. Takes frames and bundles them into TFRecord. This version only converts grid maps.
+  - preprocessing_situ_all_data: Helper script for `gather_data_situ.py`. Converts all data (RGB/depth/segmentation/grid map).
   - DQNcarCarla.py: Deep-Q Network RL test for Carla, taken from AirSim Simulator.
   - carla_intersection_locations: Text file containing values extracted from `town_positions` with `view_start_positions.py` that can be used as starting positions for the car. The simulation will then start with the vehicle driving towards a random intersection.
   - **real time eval**: Folder containing scripts to run real-time evaluation. Run `carla_eval_realtime.py`, uses `tf_carla_eval.py` and `preprocessing_situ_all_data.py` to preprocess data. Creates window showing next 10 predicted frames in real-time while running Carla. Note: Before running this change line 22 in `tf_carla_eval.py` to reflect the current location.
 
-## Important arguments for data gathering scripts
+### Important arguments for data gathering scripts
   - autopilot: We want the vehicle to be autopiloted while gathering data.
   - images-to-disk: We want to save the gathered data to disk.
   - carla-settings: Similar file to what is passed to server. We do not use it because the values are hardcoded in the script. Contains information such as number of pedestrians, vehicles, weather condition, etc.
@@ -40,7 +40,7 @@ Execute the scripts while the CARLA server is running. Make sure that the port s
   - no-misbehaviour: Episode will be discarded if violation is detected (collision of any sorts).
   - episode: Number of episodes to run. At every new episode the simulator resets the vehicle position to a new starting location.
   - frames: Number of frames per episode.
-  
+
  The following arguments can also be passed to the gathering script and determine how the data is stored in the TFRecord file.
   - samples-per-record: Number of sequences per TFRecord.
   - K: Number of frames to observe before prediction.
