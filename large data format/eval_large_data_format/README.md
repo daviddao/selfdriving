@@ -15,10 +15,10 @@ Important arguments that can be passed to the script are:
   - speed-yaw-loss: Output additional text file containing ground truth and predicted odometry (speed, yaw rate).
   - prefix: Name of the model to use.
 
-Use the following command to run the evaluation script:
+Use the following command to run the evaluation script with the provided TFRecord and model:
 ```
 CUDA_VISIBLE_DEVICES=0 python -W ignore test_onmove_dataset.py --num-gpu=1
 ```
 The evaluation script supports Multi-GPU but does not need it. Running with 1 GPU is enough for evaluation.
 
-The results will be stored in `../results` where the prediction for every sequence `X` is saved under `/results/images/Gridmap/<model name>/saveX/`. The `gt_*.png` are grid map ground truth frames that are concatenated to a gif in `gt_X.gif`. The same is true for the predictions `pred_X.png`. The images `img_gt_X.gif` and `img_pred_X.gif` contain the ground truth and predicted image channel frame sequence. They both show all (K+T) frames. The image `img_X.png` shows the predictions of all channels side by side with the ground truth always being on the left. The topmost row is the first prediction and the bottom row is the last prediction.
+The results will be stored in `../results` where the prediction for every sequence `X` is saved under `/results/images/Gridmap/<model name>/saveX/`. The `gt_*.png` are grid map ground truth frames that are concatenated to a gif in `gt_X.gif`. The same is true for the predictions `pred_*.png`. The images `img_gt_X.gif` and `img_pred_X.gif` contain the ground truth and predicted image channel frame sequence. They both show all (K+T) frames. The image `img_X.png` shows the `T` future frame predictions of all channels side by side with the ground truth always being on the left. The topmost row is the first prediction and the bottom row is the last prediction. If the ground truth of an image channel is black it is because it is not provided in that dataset.
