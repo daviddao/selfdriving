@@ -7,7 +7,7 @@ All code is written in Python 3 (v3.6.5). Python packages used are:
   - tensorflow 1.8.0
   - tensorflow-gpu 1.8.0
   - tqdm 4.23.0
-  - tk 8.6.7
+  - tkinter 8.6.7
   - scipy 1.1.0
   - scikit-learn 0.19.1
   - pillow 5.1.0

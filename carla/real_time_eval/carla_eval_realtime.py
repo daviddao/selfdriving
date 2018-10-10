@@ -19,16 +19,18 @@ from carla.util import print_over_same_line
 
 import tf_carla_eval
 
-rangeThreshold = 100
+rangeThreshold = 50
 rangeThresholdSq = rangeThreshold**2
 
+# speed up grid map creation by discarding all participants outside of grid map range
 def participantInRange(partLoc, plLoc):
     return (((partLoc.x - plLoc.x)**2 + (partLoc.y - plLoc.y)**2) <= rangeThresholdSq)
-    
+
 def cart2pol(x, y):
     phi = np.arctan2(y, x)
     return phi
 
+# transform agent coordinate to world coordinate
 def agent2world(vehicle, angle):
     loc_x = vehicle.transform.location.x
     loc_y = vehicle.transform.location.y
@@ -38,18 +40,21 @@ def agent2world(vehicle, angle):
     rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
     bbox_rot = rotMatrix.dot(bbox)
     return bbox_rot + np.repeat(np.array([[loc_x], [loc_y]]), 4, axis=1)
-    
+
+# transform world coordinate to player coordinate
 def world2player(polygon, angle, player_transform):
     rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
     polygon -= np.repeat(np.array([[player_transform.location.x], [player_transform.location.y]]), 4, axis=1)
     polygon = rotMatrix.dot(polygon)
     return polygon
-    
+
+# transform player coordinates to image coordinates
 def player2image(polygon, shift, multiplier):
     polygon *= multiplier
     polygon += shift
     return polygon
 
+# process player odometry
 def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
     player_measurements = measurements.player_measurements
     yaw = ((player_measurements.transform.rotation.yaw - yaw_shift - 180) % 360) - 180
@@ -62,19 +67,20 @@ def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
         yaw_rate = 0
     else:
         yaw_rate = (180 - abs(abs(yaw - yaw_old) - 180))/time_diff * np.sign(yaw-yaw_old)
-    
+
     return yaw, yaw_rate, player_measurements.forward_speed, prev_time
 
 def run_carla_client(args):
-    # Here we will run 100 episodes with 500 frames each.
-    number_of_episodes = 100
-    frames_per_episode = 500
-    
+    # Here we will run args._episode episodes with args._frames frames each.
+    number_of_episodes = args._episode
+    frames_per_episode = args._frames
+
     #call init in eval file to load model
-    checkpoint_dir_loc = "./model/"
-    prefix = "pure-test_GRIDMAP_MCNET_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1"
+    checkpoint_dir_loc = args.chckpt_loc
+    prefix = args.model_name
     tf_carla_eval.init(checkpoint_dir_loc, prefix)
-    
+
+    # create the carla client
     with make_carla_client(args.host, args.port, timeout=100000) as client:
         print('CarlaClient connected')
 
@@ -96,7 +102,7 @@ def run_carla_client(args):
                 camera0.set_image_size(1920, 640)
                 camera0.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera0)
-                
+
                 camera1 = Camera('CameraDepth', PostProcessing='Depth')
                 camera1.set_image_size(1920, 640)
                 camera1.set_position(2.00, 0, 1.30)
@@ -116,34 +122,13 @@ def run_carla_client(args):
             number_of_player_starts = len(scene.player_start_spots)
             player_start = random.randint(0, max(0, number_of_player_starts - 1))
 
-            # Start a new episode.
-            file_loc = args.file_loc
-            if not os.path.exists(file_loc):
-                os.makedirs(file_loc)
-                
-            preprocessing_situ_all_data.set_dest_path(file_loc)
-            
             print('Starting new episode at %r...' % scene.map_name)
             client.start_episode(player_start)
-            
-            prefix = str(int(round(args.start_time))) + '_' + str(episode)
-            preprocessing_situ_all_data.update_episode_reset_globals(prefix)
+
             # Iterate every frame in the episode.
             for frame in range(0, frames_per_episode):
 
                 measurements, sensor_data = client.read_data()
-                """ #do not restart on misbehaviour, we need to see how model evals these
-                if args.no_misbehaviour:
-                    player_measurements = measurements.player_measurements
-                    col_cars=player_measurements.collision_vehicles
-                    col_ped=player_measurements.collision_pedestrians
-                    col_other=player_measurements.collision_other
-                    #other_lane=100 * player_measurements.intersection_otherlane
-                    #offroad=100 * player_measurements.intersection_offroad #problem on intersection
-                    if col_cars + col_ped + col_other > 0:
-                        print("MISBEHAVIOUR DETECTED! Discarding Episode... \n")
-                        break
-                """
                 #print_measurements(measurements)
 
                 # Skip first couple of images due to setup time.
@@ -157,10 +142,10 @@ def run_carla_client(args):
                             segmentation = measurement.return_segmentation_map()
                         if name == 'CameraRGB':
                             rgb = measurement.return_rgb()
-                    
+
                     yaw, yaw_rate, speed, prev_time = process_odometry(measurements, yaw_shift, yaw_old, prev_time)
-                    yaw_old = yaw                    
-                    
+                    yaw_old = yaw
+
                     im = Image.new('L', (256*6, 256*6), (127))
                     shift = 256*6/2
                     draw = ImageDraw.Draw(im)
@@ -189,7 +174,7 @@ def run_carla_client(args):
                         #start_time = time.time()
                         ppTime, evTime, imTime, tkTime = tf_carla_eval.eval(im, rgb, depth, segmentation, -yaw_rate, speed)
                         printTimePerEval(gmTime, ppTime, evTime, imTime, tkTime)
-                            
+
                 else:
                     # get first values
                     yaw_shift = measurements.player_measurements.transform.rotation.yaw
@@ -232,7 +217,7 @@ def print_measurements(measurements):
         offroad=100 * player_measurements.intersection_offroad,
         agents_num=number_of_agents)
     print_over_same_line(message)
-    
+
 def printTimePerEval(time, ppTime, evTime, imTime, tkTime):
     message = 'Time per gridmap gen: {td:.3f}, '
     message += 'Time per preprocess: {pp:.3f}, '
@@ -296,6 +281,14 @@ def main():
         dest='no_misbehaviour',
         default=True,
         help='Should Episode be discarded if violation was detected? (deprecated)')
+    argparser.add_argument("--episode", type=int, dest="_episode", default=100,
+                        help="Number of episodes to run.")
+    argparser.add_argument("--frames", type=int, dest="_frames", default=500,
+                        help="Number of frames per episode.")
+    argparser.add_argument("--chckpt-loc", type=str, dest="chckpt_loc", default="../../large data format/eval_large_data_format/model/",
+                        help="Location where model checkpoint is stored.")
+    argparser.add_argument("--model-name", type=str, dest="model_name", default="pure-sy-onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1",
+                        help="Name of model to load.")
 
     args = argparser.parse_args()
 

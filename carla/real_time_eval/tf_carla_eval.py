@@ -9,7 +9,6 @@ import math
 
 import tkinter as tk
 from PIL import Image, ImageDraw, ImageTk
-#from Tkinter.ttk import Frame, Button, Style
 
 import tensorflow as tf
 import scipy.misc as sm
@@ -18,8 +17,9 @@ import numpy as np
 import skimage.measure as measure
 
 import sys
-#change this to where repository is located
-path_to_evalmodel = 'F:/selfdriving/large data format/training_large_data_format'
+
+#change this to where the training folder is located
+path_to_evalmodel = '../../large data format/training_large_data_format'
 sys.path.insert(0, path_to_evalmodel)
 
 from move_network_distributed_noGPU import MCNET
@@ -49,6 +49,151 @@ image_size = -1
 data_w = -1
 data_h = -1
 canvas = -1
+
+def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80, K_i=9, T_i=10, seq_steps=1, useDenseBlock=False, samples=1):
+    global K, T, sess, model, image_size, data_h, data_w, canvas
+    root = tk.Tk()
+    canvas = tk.Canvas(root, width=(data_w_i*3+data_h_i), height=(data_h_i*T_i), bd=0, highlightthickness=0)
+    canvas.pack()
+    data_w = data_w_i
+    data_h = data_h_i
+    image_size = image_size_i
+    gpu = np.arange(1)
+    K = K_i
+    T = T_i
+    print("Setup variables...")
+    datasze_tf = np.zeros(2)
+    datasze_tf[0] = data_w
+    datasze_tf[1] = data_h
+    imgsze_tf = image_size
+    seqlen_tf = seq_steps
+    K_tf = K_i
+    T_tf = T_i
+    fc_tf = K #we have K frames, we predict next T
+    assert(seq_steps <= seqlen_tf)
+    assert(K <= K_tf)
+    assert(T <= T_tf)
+    assert(seqlen_tf == 1)
+
+    #first dim = batch_size, set to 1, needed for compatibility with model
+    input_batch_shape = [1, imgsze_tf, imgsze_tf, seqlen_tf*(K_tf), 2]
+    maps_batch_shape = [1, imgsze_tf, imgsze_tf, seqlen_tf*(K_tf)+1, 2]
+    transformation_batch_shape = [1, seqlen_tf*(K_tf),3,8]
+    rgb_batch_shape = [1, fc_tf,datasze_tf[1],datasze_tf[0],3]
+    segmentation_batch_shape = [1, fc_tf,datasze_tf[1],datasze_tf[0],3]
+    depth_batch_shape = [1, fc_tf,datasze_tf[1],datasze_tf[0],1]
+    direction_batch_shape = [1, fc_tf,2]
+
+    graph = tf.Graph()
+    with graph.as_default():
+        checkpoint_dir = checkpoint_dir_loc + prefix + "/"
+        best_model = None  # will pick last model
+
+        # initialize model
+        model = MCNET(image_size=[image_size, image_size], data_size=[data_h, data_w], batch_size=1, K=K,
+                  T=T, c_dim=1, checkpoint_dir=checkpoint_dir,
+                  iterations=seq_steps, useSELU=True, motion_map_dims=2,
+                  showFutureMaps=False, useDenseBlock=useDenseBlock, samples=samples)
+
+        # Setup model (for details see training_large_data_format folder)
+        model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
+        with tf.variable_scope(tf.get_variable_scope()) as vscope:
+            with tf.device("/gpu:%d" % gpu[0]):
+
+                #fetch input
+                model.input_batch = tf.placeholder(tf.float32, shape=input_batch_shape,name='input_batch')
+                model.map_batch = tf.placeholder(tf.float32, shape=maps_batch_shape,name='map_batch')
+                model.transformation_batch = tf.placeholder(tf.float32, shape=transformation_batch_shape,name='transformation_batch')
+                model.rgb_cam = tf.placeholder(tf.float32, shape=rgb_batch_shape,name='rgb_cam')
+                model.seg_cam = tf.placeholder(tf.float32, shape=segmentation_batch_shape,name='seg_cam')
+                model.dep_cam = tf.placeholder(tf.float32, shape=depth_batch_shape,name='dep_cam')
+                model.direction = tf.placeholder(tf.uint8, shape=direction_batch_shape,name='direction')
+
+                # Construct the model
+                pred, _, _, rgb_pred, seg_pred, dep_pred, _, _, trans_pred, dir_pred = model.forward(model.input_batch, model.map_batch, model.transformation_batch, model.rgb_cam, model.seg_cam, model.dep_cam, model.direction, 0)
+
+                model.G = tf.stack(axis=3, values=pred)
+                model.trans_pred = trans_pred
+                model.rgb_pred = tf.stack(rgb_pred,1)
+                model.seg_pred = tf.stack(seg_pred,1)
+                model.dep_pred = tf.stack(dep_pred,1)
+
+                tf.get_variable_scope().reuse_variables()
+
+
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=True)
+
+    with graph.as_default():
+
+        model.saver = tf.train.Saver()
+
+        init = tf.global_variables_initializer()
+
+        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_placement=False,gpu_options=gpu_options))
+
+        sess.run(init)
+
+        bool, ckpt = model.load(sess, checkpoint_dir, best_model)
+        print(checkpoint_dir)
+        if bool:
+            print(" [*] Load SUCCESS")
+        else:
+            print(" [!] Load failed... exitting")
+            print(" [!] Checkpoint file is: "+str(ckpt))
+            if ckpt != None:
+                print(ckpt.model_checkpoint_path)
+            return
+
+def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
+    # preprocess input
+    ppTime = time.time()
+    ready, gridmap, gm_map, trans_matrix, rgb, seg, dep, dir_vehicle = preprocessing(input_gridmap, rgb, dep, seg, yaw_rate, speed)
+    ppTime = time.time() - ppTime
+    if ready:
+        evTime = time.time()
+        samples, rgb_pred, seg_pred, dep_pred, tfmat = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred, model.trans_pred],
+                                                         feed_dict={model.input_batch: gridmap,
+                                                                    model.map_batch: gm_map,
+                                                                    model.transformation_batch: trans_matrix,
+                                                                    model.rgb_cam: rgb,
+                                                                    model.seg_cam: seg,
+                                                                    model.dep_cam: dep,
+                                                                    model.direction: dir_vehicle})
+
+
+        evTime = time.time() - evTime
+        imTime = time.time()
+
+        samples_seq_step = (samples[0, :, :,:].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
+        samples_seq_step = np.tile(samples_seq_step, [1,1,1,3])
+
+        curr_frame = []
+
+        rgb_pred = (np.clip(rgb_pred,-1,1)+1)/2 * 255
+        seg_pred = (seg_pred+1)/2 * 255
+        dep_pred = (dep_pred+1)/2 * 255
+
+        for seq_step in range(T):
+            pred = np.squeeze(samples_seq_step[K+seq_step])
+            pred = (pred * 255).astype("uint8")
+            curr_frame.append(np.concatenate([
+                np.asarray(Image.fromarray(pred).resize((data_h,data_h),Image.ANTIALIAS)),
+                      rgb_pred[0,K+seq_step,:,:,:],
+                      seg_pred[0,K+seq_step,:,:,:],
+                      np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
+
+        npImg = np.uint8(np.concatenate(curr_frame,0))
+
+        im = Image.fromarray(npImg)
+        imTime = time.time() - imTime
+        tkTime = time.time()
+        image1 = ImageTk.PhotoImage(im)
+        canvas.create_image(0, 0, image=image1, anchor="nw")
+        canvas.update()
+        tkTime = time.time() - tkTime
+        return ppTime, evTime, imTime, tkTime
+
+    return ppTime, 0, 0, 0
 
 #following functions are from the preprocessing script
 def create_default_element(image_size, seq_length, channel_size):
@@ -156,7 +301,7 @@ def preprocessing(img, rgb, depth, segmentation, yaw_rate, speed):
     global occupancy_buffer, occlusion_buffer, transformation_buffer, rgb_buffer, depth_buffer
     global segmentation_buffer, data_size, direction_buffer, return_clips, return_transformation
     seq_length = K + 1
-    
+
     #find the direction (left,right,straight)
     if yaw_rate < -0.5: #going left
         direction_buffer.append([1,1])
@@ -204,151 +349,5 @@ def preprocessing(img, rgb, depth, segmentation, yaw_rate, speed):
         del segmentation_buffer[0]
         del direction_buffer[0]
         return True, np.expand_dims(input_seq, axis=0), np.expand_dims(maps, axis=0), np.expand_dims(tf_matrix, axis=0), np.expand_dims(return_camera_rgb[1:], axis=0), np.expand_dims(return_camera_segmentation[1:], axis=0), np.expand_dims(return_camera_depth[1:], axis=0), np.expand_dims(return_direction[1:], axis=0)
-    
+
     return False, -1, -1, -1, -1, -1, -1, -1
-
-
-def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80, K_i=9, T_i=10, seq_steps=1, useDenseBlock=False, samples=1):
-    global K, T, sess, model, image_size, data_h, data_w, canvas
-    root = tk.Tk()
-    canvas = tk.Canvas(root, width=(data_w_i*3+data_h_i), height=(data_h_i*T_i), bd=0, highlightthickness=0)
-    canvas.pack()
-    data_w = data_w_i
-    data_h = data_h_i
-    image_size = image_size_i
-    gpu = np.arange(1)
-    K = K_i
-    T = T_i
-    print("Setup variables...")
-    datasze_tf = np.zeros(2)
-    datasze_tf[0] = data_w
-    datasze_tf[1] = data_h
-    imgsze_tf = image_size
-    seqlen_tf = seq_steps
-    K_tf = K_i
-    T_tf = T_i
-    fc_tf = K #we have K frames, we predict next T
-    assert(seq_steps <= seqlen_tf)
-    assert(K <= K_tf)
-    assert(T <= T_tf)
-    assert(seqlen_tf == 1)
-
-    #first dim = batch_size, set to 1, needed for compatibility with model
-    input_batch_shape = [1, imgsze_tf, imgsze_tf, seqlen_tf*(K_tf), 2]
-    maps_batch_shape = [1, imgsze_tf, imgsze_tf, seqlen_tf*(K_tf)+1, 2]
-    transformation_batch_shape = [1, seqlen_tf*(K_tf),3,8]
-    rgb_batch_shape = [1, fc_tf,datasze_tf[1],datasze_tf[0],3]
-    segmentation_batch_shape = [1, fc_tf,datasze_tf[1],datasze_tf[0],3]
-    depth_batch_shape = [1, fc_tf,datasze_tf[1],datasze_tf[0],1]
-    direction_batch_shape = [1, fc_tf,2]
-
-    graph = tf.Graph()
-    with graph.as_default():
-        checkpoint_dir = checkpoint_dir_loc + prefix + "/"
-        best_model = None  # will pick last model
-
-        # initialize model
-        model = MCNET(image_size=[image_size, image_size], data_size=[data_h, data_w], batch_size=1, K=K,
-                  T=T, c_dim=1, checkpoint_dir=checkpoint_dir,
-                  iterations=seq_steps, useSELU=True, motion_map_dims=2,
-                  showFutureMaps=False, useDenseBlock=useDenseBlock, samples=samples)
-
-        # Setup model (for details see training_large_data_format folder)
-        model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
-        with tf.variable_scope(tf.get_variable_scope()) as vscope:
-            with tf.device("/gpu:%d" % gpu[0]):
-
-                #fetch input
-                model.input_batch = tf.placeholder(tf.float32, shape=input_batch_shape,name='input_batch')
-                model.map_batch = tf.placeholder(tf.float32, shape=maps_batch_shape,name='map_batch')
-                model.transformation_batch = tf.placeholder(tf.float32, shape=transformation_batch_shape,name='transformation_batch')
-                model.rgb_cam = tf.placeholder(tf.float32, shape=rgb_batch_shape,name='rgb_cam')
-                model.seg_cam = tf.placeholder(tf.float32, shape=segmentation_batch_shape,name='seg_cam')
-                model.dep_cam = tf.placeholder(tf.float32, shape=depth_batch_shape,name='dep_cam')
-                model.direction = tf.placeholder(tf.uint8, shape=direction_batch_shape,name='direction')
-
-                # Construct the model
-                pred, _, _, rgb_pred, seg_pred, dep_pred, _, _, trans_pred, dir_pred = model.forward(model.input_batch, model.map_batch, model.transformation_batch, model.rgb_cam, model.seg_cam, model.dep_cam, model.direction, 0)
-
-                model.G = tf.stack(axis=3, values=pred)
-                model.trans_pred = trans_pred
-                model.rgb_pred = tf.stack(rgb_pred,1)
-                model.seg_pred = tf.stack(seg_pred,1)
-                model.dep_pred = tf.stack(dep_pred,1)
-
-                tf.get_variable_scope().reuse_variables()
-
-    
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=True)
-
-    with graph.as_default():
-        
-        model.saver = tf.train.Saver()
-        
-        init = tf.global_variables_initializer()
-
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_placement=False,gpu_options=gpu_options))
-
-        sess.run(init)
-
-        bool, ckpt = model.load(sess, checkpoint_dir, best_model)
-        print(checkpoint_dir)
-        if bool:
-            print(" [*] Load SUCCESS")
-        else:
-            print(" [!] Load failed... exitting")
-            print(" [!] Checkpoint file is: "+str(ckpt))
-            if ckpt != None:
-                print(ckpt.model_checkpoint_path)
-            return
-
-def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
-    # preprocess input
-    ppTime = time.time()
-    ready, gridmap, gm_map, trans_matrix, rgb, seg, dep, dir_vehicle = preprocessing(input_gridmap, rgb, dep, seg, yaw_rate, speed)
-    ppTime = time.time() - ppTime
-    if ready:
-        evTime = time.time()
-        samples, rgb_pred, seg_pred, dep_pred, tfmat = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred, model.trans_pred], 
-                                                         feed_dict={model.input_batch: gridmap,
-                                                                    model.map_batch: gm_map,
-                                                                    model.transformation_batch: trans_matrix,
-                                                                    model.rgb_cam: rgb,
-                                                                    model.seg_cam: seg,
-                                                                    model.dep_cam: dep,
-                                                                    model.direction: dir_vehicle})
-
-        
-        evTime = time.time() - evTime
-        imTime = time.time()
-        
-        samples_seq_step = (samples[0, :, :,:].swapaxes(0, 2).swapaxes(1, 2) + 1) / 2.0
-        samples_seq_step = np.tile(samples_seq_step, [1,1,1,3])
-
-        curr_frame = []
-
-        rgb_pred = (np.clip(rgb_pred,-1,1)+1)/2 * 255
-        seg_pred = (seg_pred+1)/2 * 255
-        dep_pred = (dep_pred+1)/2 * 255
-
-        for seq_step in range(T):
-            pred = np.squeeze(samples_seq_step[K+seq_step])
-            pred = (pred * 255).astype("uint8")
-            curr_frame.append(np.concatenate([
-                np.asarray(Image.fromarray(pred).resize((data_h,data_h),Image.ANTIALIAS)),
-                      rgb_pred[0,K+seq_step,:,:,:],
-                      seg_pred[0,K+seq_step,:,:,:],
-                      np.tile(dep_pred[0,K+seq_step,:,:,:],[1,1,3])],1))
-
-        npImg = np.uint8(np.concatenate(curr_frame,0))
-        
-        im = Image.fromarray(npImg)
-        imTime = time.time() - imTime
-        tkTime = time.time()
-        image1 = ImageTk.PhotoImage(im)
-        canvas.create_image(0, 0, image=image1, anchor="nw")
-        canvas.update()
-        tkTime = time.time() - tkTime
-        return ppTime, evTime, imTime, tkTime
-    
-    return ppTime, 0, 0, 0

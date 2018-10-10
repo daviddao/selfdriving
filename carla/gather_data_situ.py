@@ -21,6 +21,7 @@ def cart2pol(x, y):
     phi = np.arctan2(y, x)
     return phi
 
+# transform agent coordinate to world coordinate
 def agent2world(vehicle, angle):
     loc_x = vehicle.transform.location.x
     loc_y = vehicle.transform.location.y
@@ -30,18 +31,21 @@ def agent2world(vehicle, angle):
     rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
     bbox_rot = rotMatrix.dot(bbox)
     return bbox_rot + np.repeat(np.array([[loc_x], [loc_y]]), 4, axis=1)
-    
+
+# transform world coordinate to player coordinate
 def world2player(polygon, angle, player_transform):
     rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
     polygon -= np.repeat(np.array([[player_transform.location.x], [player_transform.location.y]]), 4, axis=1)
     polygon = rotMatrix.dot(polygon)
     return polygon
-    
+
+# transform player coordinates to image coordinates
 def player2image(polygon, shift, multiplier):
     polygon *= multiplier
     polygon += shift
     return polygon
 
+# process player odometry
 def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
     player_measurements = measurements.player_measurements
     yaw = ((player_measurements.transform.rotation.yaw - yaw_shift - 180) % 360) - 180
@@ -54,7 +58,7 @@ def process_odometry(measurements, yaw_shift, yaw_old, prev_time):
         yaw_rate = 0
     else:
         yaw_rate = (180 - abs(abs(yaw - yaw_old) - 180))/time_diff * np.sign(yaw-yaw_old)
-    
+
     return yaw, yaw_rate, player_measurements.forward_speed, prev_time
 
 def run_carla_client(args):
@@ -62,6 +66,7 @@ def run_carla_client(args):
     number_of_episodes = args._episode
     frames_per_episode = args._frames
 
+    # create the carla client
     with make_carla_client(args.host, args.port, timeout=100000) as client:
         print('CarlaClient connected')
 
@@ -83,7 +88,7 @@ def run_carla_client(args):
                 camera0.set_image_size(1920, 640)
                 camera0.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera0)
-                
+
                 camera1 = Camera('CameraDepth', PostProcessing='Depth')
                 camera1.set_image_size(1920, 640)
                 camera1.set_position(2.00, 0, 1.30)
@@ -106,29 +111,28 @@ def run_carla_client(args):
             number_of_player_starts = len(scene.player_start_spots)
             player_start = random.randint(0, max(0, number_of_player_starts - 1))
 
-            # Start a new episode.
+            # create folder for current episode
             file_loc = args.file_loc
             if not os.path.exists(file_loc):
                 os.makedirs(file_loc)
-            
+
             #set destination path for the tfrecords
             preprocessing_situ_all_data.set_dest_path(file_loc, args._samples_per_record, args._K, args._T, args._image_size, args._seq_length, args._step_size)
-            
+
             print('Starting new episode at %r...' % scene.map_name)
             client.start_episode(player_start)
-            
+
+            # take unique time snapshot used for naming
             prefix = str(int(round(args.start_time))) + '_' + str(episode)
-            
+
             #update the prefix of the tfrecord name and reset the globals when starting a new episode
             preprocessing_situ_all_data.update_episode_reset_globals(prefix)
-                
-            #print('Data saved in %r' % file_loc)
 
             # Iterate every frame in the episode.
             for frame in range(0, frames_per_episode):
 
                 measurements, sensor_data = client.read_data()
-                
+
                 #discard episode if misbehaviour flag is set and a form of collision is detected
                 if args.no_misbehaviour:
                     player_measurements = measurements.player_measurements
@@ -152,10 +156,10 @@ def run_carla_client(args):
                             segmentation = measurement.return_segmentation_map()
                         if name == 'CameraRGB':
                             rgb = measurement.return_rgb()
-                    
+
                     yaw, yaw_rate, speed, prev_time = process_odometry(measurements, yaw_shift, yaw_old, prev_time)
-                    yaw_old = yaw                    
-                    
+                    yaw_old = yaw
+
                     #generate image with bounding boxes, will be transformed to gridmaps in preprocessing
                     im = Image.new('L', (256*6, 256*6), (127))
                     shift = 256*6/2
@@ -171,13 +175,13 @@ def run_carla_client(args):
                             draw.polygon(polygon, 0, 0)
                     im = im.resize((256,256), Image.ANTIALIAS)
                     im = im.rotate(imrotate)
-                    
+
                     #pass frame by frame to the preprocessor, it buffers these and stores them as tfrecords
                     if not args.all_data:
-                        preprocessing_situ.main(im, -yaw_rate, speed, episode)
+                        preprocessing_situ.main(im, -yaw_rate, speed)
                     else:
                         preprocessing_situ_all_data.main(im, rgb, depth, segmentation, -yaw_rate, speed)
-                            
+
                 else:
                     # get values while frame < 20 to be used when frame == 20
                     yaw_shift = measurements.player_measurements.transform.rotation.yaw

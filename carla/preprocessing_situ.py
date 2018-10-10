@@ -10,24 +10,32 @@ from tqdm import tqdm
 import tensorflow as tf
 from PIL import Image, ImageDraw, ImageOps
 
-dest_path = -1
-prefix = -1
-samples_per_record = 10
+dest_path = None
+prefix = None
+
+#SETTINGS: These values are set in set_dest_path
+#number of samples per tfrecord, one sample equals one sequence
+samples_per_record = 20
+#number of frames used before starting prediction
 K = 9
+#number of frames to predict
 T = 10
+#values copied over from original preprocessing script
 prescale=337
 crop_size=96
 image_size=96
 occup_steps=1
+#number of frames per sequence, needs to be at least K+T+1
 seq_length=20
+#number of frames to skip between sequences
 step_size=5
+#if one tfrecord sequence holds multiple of (K+T+1) can loop over additional frames
+#equal to having multiple sequences with only (K+T+1) frames
 seq_steps=seq_length//(K+T)
-#frame_composing=2 not supported for now, need to change code in calcImageTranslation first
-thresh = 96 #Threshold for mean of pixels over channels (between 0 and 255)
-OVERWRITE_OCCLUSION="False"
-OVERWRITE_OCCUPMASK="False"
-OVERWRITE_OCCLIMGS="False"
-BASEDIR='./preprocessed_dataset/'
+#Threshold for mean of pixels over channels (between 0 and 255)
+thresh = 96
+#frame composing not supported for now, need to change code in calcImageTranslation
+#frame_composing=2
 
 occupancy_buffer = []
 transformation_buffer = []
@@ -44,7 +52,7 @@ def set_dest_path(path, _samples_per_record, _K, _T, _image_size, _seq_length, _
     dest_path = path
     if not os.path.exists(path):
         os.makedirs(path)
-        
+
     samples_per_record = _samples_per_record
     K = _K
     T = _T
@@ -53,36 +61,21 @@ def set_dest_path(path, _samples_per_record, _K, _T, _image_size, _seq_length, _
     image_size = _image_size
     seq_length = _seq_length
     step_size = _step_size
-    
+
 def update_episode_reset_globals(pfx):
     global prefix, occupancy_buffer, occlusion_buffer, transformation_buffer
-    global return_clips, return_transformation, rgb_buffer, depth_buffer
-    global segmentation_buffer, return_camera_rgb, return_camera_segmentation, return_camera_depth
-    global idnr, data_size, direction_buffer, return_direction
+    global return_clips, return_transformation
     prefix = pfx
     occupancy_buffer = []
     transformation_buffer = []
     occlusion_buffer = []
     return_clips = []
     return_transformation = []
-    rgb_buffer = []
-    depth_buffer = []
-    segmentation_buffer = []
-    return_camera_rgb = []
-    return_camera_segmentation = []
-    return_camera_depth = []
     idnr = 0
-    data_size = []
-    direction_buffer = []
-    return_direction = []
 
 def main(img, yaw_rate, speed):
-    global occupancy_buffer
-    global occlusion_buffer
-    global transformation_buffer
-    global return_clips
-    global return_transformation
-    global idnr
+    global occupancy_buffer, occlusion_buffer, transformation_buffer
+    global return_clips, return_transformation, idnr
     occupancy_img = cropAndResizeImage(img)
     occupancy_array = np.array(occupancy_img)
     if len(occupancy_array.shape) == 3:
@@ -93,24 +86,33 @@ def main(img, yaw_rate, speed):
     occupancy_buffer.append(occupancy_mask)
     occlusion_buffer.append(occlusion_array)
     transformation_buffer.append(transformation_matrix)
+
+    #if enough frames have been buffered combine them into one sequence
     if len(occupancy_buffer) >= seq_length:
         compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer)
+
+        #if enough sequences have been gathered combine them into one tfrecord
         if len(return_clips) >= samples_per_record:
+
+            # convert sequences into one tfrecord and save it
             convert_tfrecord(return_clips)
             idnr += 1
             return_clips = []
             return_transformation = []
+
+        # remove the first step_size frames to skip frames
         del occupancy_buffer[:step_size]
         del occlusion_buffer[:step_size]
         del transformation_buffer[:step_size]
-    
+
+#resize and convert images
 def cropAndResizeImage(img):
     if prescale > 0:
         img.thumbnail((prescale, prescale), PIL.Image.ANTIALIAS)
     crop_img = ImageOps.fit(img, [crop_size, crop_size])
     scaled_img = crop_img.resize((image_size, image_size), PIL.Image.ANTIALIAS)
     return scaled_img
-    
+
 two_pi_f = 2 * math.pi
 angular_res_rad_f = two_pi_f/900.0
 radial_res_meter_f = 0.2
@@ -125,7 +127,7 @@ def createOcclusionMap(gridmap, max_occluded_steps=1):
 
     occlusion_map = np.ones(gridmap.shape, dtype=np.float32)    # 0 - occluded, 1 - non occluded/visible
     start_time = time.time()
-    
+
     # Angle array captures 0 to 360 degree in radians to simulate the lidar beams
     angle_array = np.arange(0,two_pi_f,angular_res_rad_f)
     # Radial array captures 0 to max distance of detection to iterate over the distance to the ego vehicle
@@ -135,11 +137,11 @@ def createOcclusionMap(gridmap, max_occluded_steps=1):
     radial_array = np.stack([radial_array]*angle_array.shape[0], axis=0)
 
     # x,y grid contains all x,y-Coordinates which correlate to the given angle and radius
-    xy_grid = np.empty((angle_array.shape[0], radial_array.shape[1], 2), dtype=int)  
+    xy_grid = np.empty((angle_array.shape[0], radial_array.shape[1], 2), dtype=int)
     xy_grid[:,:,0] = grid_cell_size_inv_f * np.multiply(np.cos(angle_array), radial_array) + num_cells_per_edge_half_f # 0 - x
     xy_grid[:,:,1] = grid_cell_size_inv_f * np.multiply(np.sin(angle_array), radial_array) + num_cells_per_edge_half_f # 1 - y
-    xy_grid = np.clip(xy_grid, 0, int(num_cells_per_edge_ui-1)) 
-    
+    xy_grid = np.clip(xy_grid, 0, int(num_cells_per_edge_ui-1))
+
     occluded_steps = np.zeros((xy_grid.shape[0]), dtype=np.int32)
     is_occluded_array = np.zeros((xy_grid.shape[0]), dtype=np.bool)
     occlusion_wo_occup = np.ones((xy_grid.shape[0]), dtype=np.bool)
@@ -154,7 +156,7 @@ def createOcclusionMap(gridmap, max_occluded_steps=1):
         is_changed = is_occupied * (1 - is_occluded_array)
         position_array[:,0] = position_array[:,0] * (1 - is_changed) + x_i * (is_changed)
         position_array[:,1] = position_array[:,1] * (1 - is_changed) + y_i * (is_changed)
-        is_occluded_array = is_occluded_array + is_occupied 
+        is_occluded_array = is_occluded_array + is_occupied
         is_first_pixel = (np.absolute(position_array[:,0] - x_i) <= max_occluded_steps) * (np.absolute(position_array[:,1] - y_i) <= max_occluded_steps) * is_occupied
 
         occlusion_map[y_i, x_i] = occlusion_map[y_i, x_i] * (1 - (is_occluded_array * (1 - is_first_pixel)))
@@ -259,7 +261,7 @@ def get_occupancy_diff(clip):
     occup_diff = np.absolute(occup_diff)
     return np.sum(occup_diff) * 1.0 / occup_diff.shape[2]
 
-def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer, 
+def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_buffer,
                            transformation_only=False, split_number = 0, split_amount = 1):
     global return_clips
     global return_transformation
@@ -290,7 +292,7 @@ def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_bu
                 max_occup_diff = max(max_occup_diff, occup_diff)
                 min_occup_diff = min(min_occup_diff, occup_diff)
                 mean_occup_diff = mean_occup_diff + occup_diff
-            if transformation_only or occup_diff >= 6:
+            if transformation_only or occup_diff >= 0: #was 6 in original script
                 if not transformation_only:
                     return_clips.append(all_clips[-1])
                 return_transformation.append(all_transformation[-1])
@@ -301,7 +303,7 @@ def compressMoveMapDataset(occupancy_buffer, occlusion_buffer, transformation_bu
         del all_transformation[-1]
         all_clips.insert(0, create_default_element(image_size, seq_length, channel_size))
         all_transformation.insert(0, np.zeros([seq_length, 3, 8], dtype=np.float32))
-        
+
 def _int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
@@ -334,6 +336,7 @@ def load_gridmap_onmove_tfrecord(ind, size, frame_count, useCombinedMask=False):
 
     return target_seq, input_seq, maps, tf_matrix
 
+#store data in tfrecord format
 def convert_tfrecord(clips, useCombinedMask=False):
     samples = np.arange(samples_per_record)
     shapes = np.repeat(np.array([image_size]), 1, axis=0)

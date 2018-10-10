@@ -423,7 +423,7 @@ class DeepQAgent(object):
                     self._target_net = self._action_value_net.clone(CloneMethod.freeze)
                     filename = "models\model%d" % agent_step
                     self._trainer.save_checkpoint(filename)
-    
+
     def _plot_metrics(self):
         """Plot current buffers accumulated values to visualize agent learning
         """
@@ -439,15 +439,6 @@ class DeepQAgent(object):
 
 
 def transform_input(responses, convert=True):
-    #img1d = np.array(responses[0].image_data_float, dtype=np.float)
-    #img1d = 255/np.maximum(np.ones(img1d.size), img1d)
-    #img2d = np.reshape(img1d, (responses[0].height, responses[0].width))
-
-    #from PIL import Image
-    #image = Image.fromarray(img2d)
-    #im_final = np.array(image.resize((84, 84)).convert('L')) 
-
-    #return im_final
     responses = Image.fromarray(np.uint8(responses))
     if convert:
         return np.array(responses.resize((120, 40), Image.LANCZOS).convert('L'))
@@ -496,14 +487,10 @@ def compute_reward(measurements, starting_position):
     for i in range(0, len(pts)-1):
         dist = min(dist, np.linalg.norm(np.cross((car_pt - pts[i]), (car_pt - pts[i+1])))/np.linalg.norm(pts[i]-pts[i+1]))
 
-    #print(dist)
-    #if dist > thresh_dist:
-    #    reward = -3
-    #else:
     reward_dist = (math.exp(-beta*dist) - 0.5)
     reward_speed = (((player_measurements.forward_speed - MIN_SPEED)/(MAX_SPEED - MIN_SPEED)) - 0.5)
     reward = reward_dist + reward_speed
-    
+
     print("Distance travelled="+str(dist)+". Reward Dist="+str(reward_dist)+". Reward Speed="+str(reward_speed)+".")
     return reward
 
@@ -540,7 +527,7 @@ def run_carla_client(args):
             camera1.set_image_size(1920, 640)
             camera1.set_position(2.00, 0, 1.30)
             settings.add_sensor(camera1)
-            
+
             camera2 = Camera('CameraSegmentation', PostProcessing='SemanticSegmentation')
             camera2.set_image_size(1920, 640)
             camera2.set_position(2.00, 0, 1.30)
@@ -584,7 +571,7 @@ def run_carla_client(args):
                 segmentation = measurement.return_segmentation_map()
             if name == 'CameraRGB':
                 rgb = measurement.return_rgb()
-        
+
         current_state = np.concatenate([np.expand_dims(transform_input(depth),2), transform_input(segmentation, False), transform_input(rgb, False)],axis=2)
 
         while True:
@@ -605,8 +592,8 @@ def run_carla_client(args):
             agent.train()
 
             if done:
-                #player_start = random.randint(0, max(0, number_of_player_starts - 1))
-                client.start_episode(0) #restart at same place for now
+                #restart at same place for now
+                client.start_episode(0)
                 #obtain control handler
                 control = measurements.player_measurements.autopilot_control
                 control = interpret_action(action, control)
@@ -623,8 +610,8 @@ def run_carla_client(args):
                     rgb = measurement.return_rgb()
 
             current_state = np.concatenate([np.expand_dims(transform_input(depth),2), transform_input(segmentation, False), transform_input(rgb, False)],axis=2)
-        
-        
+
+
 def main():
     argparser = argparse.ArgumentParser(description=__doc__)
     argparser.add_argument(

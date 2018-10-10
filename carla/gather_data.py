@@ -19,6 +19,7 @@ def cart2pol(x, y):
     phi = np.arctan2(y, x)
     return phi
 
+# transform agent coordinate to world coordinate
 def agent2world(vehicle, angle):
     loc_x = vehicle.transform.location.x
     loc_y = vehicle.transform.location.y
@@ -28,23 +29,26 @@ def agent2world(vehicle, angle):
     rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
     bbox_rot = rotMatrix.dot(bbox)
     return bbox_rot + np.repeat(np.array([[loc_x], [loc_y]]), 4, axis=1)
-    
+
+# transform world coordinate to player coordinate
 def world2player(polygon, angle, player_transform):
     rotMatrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
     polygon -= np.repeat(np.array([[player_transform.location.x], [player_transform.location.y]]), 4, axis=1)
     polygon = rotMatrix.dot(polygon)
     return polygon
-    
+
+# transform player coordinates to image coordinates
 def player2image(polygon, shift, multiplier):
     polygon *= multiplier
     polygon += shift
     return polygon
-    
-def run_carla_client(args):
-    # Here we will run 10 episodes with 160 frames each.
-    number_of_episodes = 10
-    frames_per_episode = 160
 
+def run_carla_client(args):
+    # Here we will run args._episode episodes with args._frames frames each.
+    number_of_episodes = args._episode
+    frames_per_episode = args._frames
+
+    # create the carla client
     with make_carla_client(args.host, args.port, timeout=10000) as client:
         print('CarlaClient connected')
 
@@ -74,7 +78,7 @@ def run_carla_client(args):
                 camera1.set_image_size(1920, 640)
                 camera1.set_position(2.00, 0, 1.30)
                 settings.add_sensor(camera1)
-                
+
                 #slows down the simulation too much by processing segmentation before saving
                 #camera2 = Camera('CameraSegmentation', PostProcessing='SemanticSegmentation')
                 #camera2.set_image_size(1920, 640)
@@ -112,23 +116,23 @@ def run_carla_client(args):
             else:
                 number_of_player_starts = len(scene.player_start_spots)
                 player_start = random.randint(0, max(0, number_of_player_starts - 1))
-                
+
             print('Starting new episode at %r...' % scene.map_name)
             client.start_episode(player_start)
-            
-            # Start a new episode.
+
+            # create folders for current episode
             file_loc = args.file_loc_format.format(episode)
             if not os.path.exists(file_loc):
                 os.makedirs(file_loc)
-                
+
             file_loc_tracklets = file_loc + "/tracklets/"
             if not os.path.exists(file_loc_tracklets):
                 os.makedirs(file_loc_tracklets)
-                
+
             file_loc_grid = file_loc + "/gridmap/"
             if not os.path.exists(file_loc_grid):
                 os.makedirs(file_loc_grid)
-                
+
             print('Data saved in %r' % file_loc)
 
             # Iterate every frame in the episode.
@@ -136,7 +140,7 @@ def run_carla_client(args):
 
                 # Read the data produced by the server this frame.
                 measurements, sensor_data = client.read_data()
-                
+
                 #discard episode if misbehaviour flag is set and a form of collision is detected
                 if args.no_misbehaviour:
                     player_measurements = measurements.player_measurements
@@ -154,6 +158,7 @@ def run_carla_client(args):
                 if args.save_images_to_disk and frame > 19:
                     player_measurements = measurements.player_measurements
 
+                    # process player odometry
                     yaw = ((player_measurements.transform.rotation.yaw - yaw_shift - 180) % 360) - 180
 
                     #calculate yaw_rate
@@ -176,13 +181,15 @@ def run_carla_client(args):
                             -yaw,
                             -yaw_rate,
                             player_measurements.forward_speed))
+
+                    # need modified saver to save converted segmentation
                     for name, measurement in sensor_data.items():
                         filename = args.out_filename_format.format(episode, name, frame)
                         if name == 'CameraSegmentation':
                             measurement.save_to_disk_converted(filename)
                         else:
                             measurement.save_to_disk(filename)
-                            
+
                     with open(file_loc_tracklets+str(round(args.start_time+measurements.game_timestamp))+".txt", "w") as text_file:
                         im = Image.new('L', (256*6, 256*6), (127))
                         shift = 256*6/2
@@ -205,10 +212,10 @@ def run_carla_client(args):
                                 polygon = [tuple(row) for row in polygon.T]
 
                                 draw.polygon(polygon, 0, 0)
-                        im = im.resize((256,256), Image.ANTIALIAS) #if nothing visible try without resize
+                        im = im.resize((256,256), Image.ANTIALIAS)
                         im = im.rotate(imrotate)
                         im.save(file_loc_grid + 'gridmap_'+ str(round(args.start_time+measurements.game_timestamp)) +'_occupancy' + '.png')
-                            
+
                 else:
                     # get first values
                     yaw_shift = measurements.player_measurements.transform.rotation.yaw
@@ -230,7 +237,7 @@ def run_carla_client(args):
                     control = measurements.player_measurements.autopilot_control
                     control.steer += random.uniform(-0.01, 0.01)
                     client.send_control(control)
-                    
+
 
 def print_measurements(measurements):
     number_of_agents = len(measurements.non_player_agents)
@@ -316,7 +323,11 @@ def main():
         dest='no_misbehaviour',
         default=True,
         help='Should Episode be discarded if violation was detected?')
-    
+    argparser.add_argument("--episode", type=int, dest="_episode", default=10,
+                        help="Number of episodes to run.")
+    argparser.add_argument("--frames", type=int, dest="_frames", default=160,
+                        help="Number of frames per episode.")
+
 
     args = argparser.parse_args()
 
@@ -324,7 +335,7 @@ def main():
     logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
 
     logging.info('listening to server %s:%s', args.host, args.port)
-    
+
     #if intersection file has non empty string, start from an intersection
     args.intersection_start = True if args.intersection_file else False
 
