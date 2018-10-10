@@ -15,8 +15,8 @@ import os
 import argparse
 import math
 
-# Change this to the directory where you store KITTI data
-basedir = 'data'
+# basedir is global and set in main
+basedir = '-1'
 
 def load_dataset(date, drive, calibrated=False, frame_range=None):
     """
@@ -105,21 +105,21 @@ def load_tracklets_for_frames(n_frames, xml_path):
     return (frame_tracklets, frame_tracklets_types)
 
 
-def main(date, drive, file_loc):
+def main(date, drive, file_loc, storage_loc):
+    global basedir
+    basedir = file_loc
 
-    #date = '2011_09_26'
-    #drive = '0005'
+    # load raw data
     dataset = load_dataset(date, drive)
     tracklet_rects, tracklet_types = load_tracklets_for_frames(len(list(dataset.velo)), 'data/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(date, date, drive))
 
+    # extract velocity, position and timestamps
     dataset_velo = list(dataset.velo)
     dataset_timestamps = list(dataset.timestamps)
     dataset_oxts = dataset.oxts
 
-    #file_loc = 'Z:/thesis/KITTI/occupancyPIL/'
-    if not os.path.exists(file_loc):
-        os.makedirs(file_loc)
-
+    if not os.path.exists(storage_loc):
+        os.makedirs(storage_loc)
 
     #GPS
     R = 6371000 #radius earth [m]
@@ -128,20 +128,20 @@ def main(date, drive, file_loc):
     shift_y = R * np.cos(curr_oxts.lat) * np.sin(curr_oxts.lon)
     yaw_shift = 180 * curr_oxts.yaw / math.pi + 180;
 
+    for curr_frame in tqdm(range(len(dataset_velo)-1)):
 
-    for curr_frame in tqdm(range(len(dataset_velo)-1)): #-1 for fencepost problem
-
+        # creating grid map
         im = Image.new('L', (256*6, 256*6), (127))
         shift = 256*6/2
         draw = ImageDraw.Draw(im)
-        #need to flip y-axis because of PIL axis definition
         lines = []
+        # draw lidar projections
         for i in range(dataset_velo[curr_frame].shape[0]):
             x1, x2 = dataset_velo[curr_frame][i][0]*10+shift, 0+shift
             y1, y2 = -dataset_velo[curr_frame][i][1]*10+shift, -0+shift
             draw.line([(x1,y1),(x2,y2)], fill='white', width=1)
 
-
+        # draw bounding box polygons
         for t_rects, t_type in zip(tracklet_rects[curr_frame], tracklet_types[curr_frame]):
             vertices = t_rects[[0, 1, 2], :]
             p1 = (vertices[0,1]*10+shift,-vertices[1,1]*10+shift) #left bottom point
@@ -151,18 +151,20 @@ def main(date, drive, file_loc):
             draw.polygon([p1,p2,p3,p4], 0, 0)
 
         im = im.resize((256,256), Image.ANTIALIAS)
-        #im.show() #!WARNING will spam output windows!
 
+        # extract delta t
         ms = round(dataset_timestamps[curr_frame].timestamp()*1000)
         curr_time = dataset_timestamps[curr_frame].timestamp()
         next_time = dataset_timestamps[curr_frame+1].timestamp()
         time_diff = next_time-curr_time
 
+        # save grid map and blank horizon map (road map)
         im = im.rotate(90)
-        im.save(file_loc + 'gridmap_'+ str(ms) +'_occupancy' + '.png')
+        im.save(storage_loc + 'gridmap_'+ str(ms) +'_occupancy' + '.png')
         imblack = Image.new('RGB', (256, 256), (255,255,255))
-        imblack.save(file_loc + 'gridmap_'+ str(ms) +'_horizon_map' + '.png')
+        imblack.save(storage_loc + 'gridmap_'+ str(ms) +'_horizon_map' + '.png')
 
+        # compute yaw, yaw rate, speed and current position
         curr_oxts = dataset_oxts[curr_frame][0]
         next_oxts = dataset_oxts[curr_frame+1][0]
         yaw_next = next_oxts.yaw
@@ -180,9 +182,10 @@ def main(date, drive, file_loc):
         ids_x = ids_x - shift_x
         ids_y = ids_y - shift_y
 
-        speed = np.linalg.norm([curr_oxts.vf, curr_oxts.vl])*np.sign(curr_oxts.vf) #need to flip sign because norm does not account for backward driving case
-
-        with open(file_loc+"odometry_t_mus-x_m-y_m-yaw_deg-yr_degs-v_ms.txt", "a") as text_file:
+        speed = np.linalg.norm([curr_oxts.vf, curr_oxts.vl])*np.sign(curr_oxts.vf)
+        
+        # save odometry in .txt file
+        with open(storage_loc+"odometry_t_mus-x_m-y_m-yaw_deg-yr_degs-v_ms.txt", "a") as text_file:
                             text_file.write("%d %f %f %f %f %f\n" % \
                                (ms,ids_x,ids_y,yaw-yaw_shift,yaw_rate,speed))
 
@@ -192,7 +195,9 @@ if __name__ == '__main__':
                         default='2011_09_26', help="date of data folder (ex. 2011_09_26)")
     parser.add_argument("--drive", type=str, dest="drive",
                         default='0005', help="drive string of data folder (ex. 0005)")
-    parser.add_argument("--storage-loc", type=str, dest="file_loc",
-                        default='Z:/thesis/KITTI/occupancyPIL/', help="location where data will be saved")
+    parser.add_argument("--storage-loc", type=str, dest="storage_loc",
+                        default='./processed/', help="location where data will be saved")
+    parser.add_argument("--file-loc", type=str, dest="file_loc", default="./data/",
+                        help="where is the data located?")
     args = parser.parse_args()
     main(**vars(args))
