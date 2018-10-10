@@ -15,11 +15,10 @@ The two conversion scripts are
   - kitti_converter: Converts KITTI data to odometry.txt and occupancy maps.
   - convert_kitti_large: Converts KITTI data to TFRecord directly. Includes grid map, RGB and black image for segmentation and depth.
 
-Note: Before running the conversion scripts update the `basedir` at the beginning of the file to reflect the location of the raw KITTI data.
-
 Script arguments are
   - date: Part of the KITTI naming scheme.
   - drive: Part of the KITTI naming scheme.
+  - file-loc: Location of the raw data.
   - storage-loc: Location to store data (TFRecords or occupancy maps).
   - prefix: String to prepend to TFRecord. (only available for `convert_kitti_large.py`)
   - samples-per-record: Number of sequences per TFRecord.
@@ -31,5 +30,5 @@ Script arguments are
 
 Run the script with
 ```
-python convert_kitti_large.py --date="2011_09_11" --drive="0005" --storage-loc="./tfrecords/" --prefix="data" --samples-per-record=20 --K=9 --T=10 --image-size=96 --seq-length=20 --step-size=5
+python convert_kitti_large.py --date="2011_09_11" --drive="0005" --file-loc="./data/" --storage-loc="./tfrecords/" --prefix="data" --samples-per-record=20 --K=9 --T=10 --image-size=96 --seq-length=20 --step-size=5
 ```
