@@ -137,6 +137,8 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
 
         #if enough sequences have been gathered combine them into one tfrecord
         if len(return_clips) >= samples_per_record:
+
+            # convert sequences into one tfrecord and save it
             convert_tfrecord(np.array(return_camera_rgb),
                              np.array(return_camera_segmentation),
                              np.array(return_camera_depth), np.array(return_direction).astype(np.uint8))
@@ -148,6 +150,7 @@ def main(img, rgb, depth, segmentation, yaw_rate, speed):
             return_camera_depth = []
             return_direction = []
 
+        # remove the first step_size frames to skip frames
         del occupancy_buffer[:step_size]
         del occlusion_buffer[:step_size]
         del transformation_buffer[:step_size]

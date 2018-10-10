@@ -38,7 +38,8 @@ def main(file_loc, storage_loc, prefix, _samples_per_record, _K, _T, _image_size
             except:
                 continue
 
-        #preprocess values and save to TFRecord once enough frames have been gathered.
+        #pass frames to preprocessing script that buffers them
+        #and bundles to TFRecord once enough frames have been received.
         preprocessing_situ_all_data.main(Image.open(gridmap),
             np.asarray(Image.open(rgb).resize((1920,640),Image.ANTIALIAS)), dep,
             np.asarray(Image.open(segmentation).resize((1920,640),Image.ANTIALIAS)),
