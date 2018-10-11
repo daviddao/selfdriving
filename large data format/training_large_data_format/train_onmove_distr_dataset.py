@@ -32,7 +32,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
     tfRecordFolder = False
     if tfrecordname == "":
         tfRecordFolder = True
-        tfrecordname = glob.glob(data_path_scratch+'/*.tfrecord')[0].split('/')[-1].split('.')[0]
+        tfrecordname = glob.glob(data_path_scratch+'*.tfrecord')[0].split('/')[-1].split('.')[0]
         print("Info: No TFRecord name provided. Using random TFRecord name in directory to parse info: " + tfrecordname)
 
     margin = 0.3
@@ -275,14 +275,14 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             model.speedyaw_error = tf.reduce_mean(tf.squared_difference(model.speedyaw,model.speedyaw_pred))
                             model.direction_error = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf.transpose(dir_pred,[1,0,2]),labels=direction))
                             model.odometry_error = model.direction_error + model.transformation_error + model.speedyaw_error
-
+                            
                             model.rgb = rgb_cam
                             model.seg = seg_cam
                             model.dep = dep_cam
                             model.rgb_pred = tf.stack(rgb_pred,1)
                             model.seg_pred = tf.stack(seg_pred,1)
                             model.dep_pred = tf.stack(dep_pred,1)
-                            if not model.useDense:
+                            if model.useDense:
                                 model.rgb_diff = tf.reduce_mean(tf.squared_difference(model.rgb_pred, model.rgb))
                                 model.seg_diff = tf.reduce_mean(tf.squared_difference(model.seg_pred, model.seg))
                                 model.dep_diff = tf.reduce_mean(tf.squared_difference(model.dep_pred, model.dep))
@@ -325,7 +325,6 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             # specify loss to parameters
                             model.t_vars = tf.trainable_variables()
                             model.g_vars = [var for var in model.t_vars if 'DIS' not in var.name]
-                            #model.c_vars = [var for var in model.t_vars if 'CAM' in var.name]
                             if beta != 0:
                                 model.d_vars = [var for var in model.t_vars if 'DIS' in var.name]
 
@@ -336,7 +335,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                                 divergence = tf.stack([tf.contrib.distributions.kl_divergence(post, prior) for post in grid_posterior],1)
                                 model.L_img = model.weighted_BCE_loss(model.G_masked, model.target_masked)
                                 model.L_img = -(tf.reduce_mean(model.L_img) - tf.reduce_mean(divergence)) #Loss = -ELBO = likelihood - divergence
-
+                                
                             model.L_BCE = model.L_img
                             if (beta != 0): #use GAN
                                 model.L_GAN = -tf.reduce_mean(model.D_)
@@ -350,13 +349,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             model.L_p = tf.reduce_mean(tf.square(model.G_masked - model.target_masked))
                             if model.useDense: #using MSE
                                 model.L_cam = model.rgb_diff + model.seg_diff + model.dep_diff
-                                div_mean = 0
+                                div_mean = tf.zeros([1])
                                 L_cam_mean = model.L_cam
                             else:
                                 rgb_loss = model.weighted_BCE_loss(model.rgb_pred,model.rgb)
                                 seg_loss = model.weighted_BCE_loss(model.seg_pred,model.seg)
                                 dep_loss = model.weighted_BCE_loss(model.dep_pred,model.dep)
-                                #model.L_cam = model.rgb_diff + model.seg_diff + model.dep_diff
                                 model.L_cam = (rgb_loss + seg_loss + dep_loss)
                                 divergence = tf.stack([tf.contrib.distributions.kl_divergence(post, prior) for post in img_posterior],1)
                                 div_mean = tf.reduce_mean(divergence)
@@ -440,7 +438,6 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         errD = errD_fake = errD_real = errG = 0
 
         while iters < num_iter:
-            #print("initializing iterator...")
             sess.run(iterator.initializer)
 
             for i in range(len_trainfiles//(batch_size*num_gpu)):
@@ -554,8 +551,6 @@ def tf_rad2deg(rad):
 
 def inverseTransMat(nextTf):
     z = tf.zeros([1,1], dtype=np.float32)
-    #mat[0,:] = nextTf[0,0:3]
-    #mat[1,:] = nextTf[0,3:6]
     matFull = tf.clip_by_value(nextTf,-1,1)
     #mean theta extracted from matrix, only use ARCSIN for +- range, take directly from [3,8]
     theta = -(tf.asin(-matFull[0,1])+tf.asin(matFull[0,3]))/2
@@ -566,12 +561,6 @@ def inverseTransMat(nextTf):
     px = pixel_diff_x / tf.sin(theta)
     pixel_diff = tf.cond(tf.equal(tf.cos(theta),0), lambda: px, lambda: (px+py)/2)
     pixel_diff = tf.cond(tf.equal(tf.sin(theta),0), lambda: py, lambda: pixel_diff)
-    #if tf.is_inf(px) or tf.is_nan(px):
-    #    pixel_diff = py
-    #elif tf.is_inf(py) or tf.is_nan(py):
-    #    pixel_diff = px
-    #else:
-    #    pixel_diff = (px+py)/2
     pixel_size = 45.6 * 1.0 / imsize
     period_duration = 1.0 / 24
     vel = pixel_diff * pixel_size / period_duration
@@ -628,7 +617,7 @@ if __name__ == "__main__":
                         default=False, help="If sharpening should be used. DEPRECATED.")
     parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
                         default="", help="tfrecord name")
-    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=True,
+    parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=False,
                         help="Use DenseBlock (dil_conv) or VAE-distr.")
     parser.add_argument("--samples", type=int, dest="samples", default=1,
                         help="if using VAE how often should be sampled?")

@@ -25,7 +25,7 @@ These are the most important arguments to get started. More arguments to control
 
 Use the following command to run the training script on 4 GPUs:
 ```
-CUDA_VISIBLE_DEVICES=4,5,6,7 python train_onmove_distr_dataset.py --gpu 0 1 2 3 --dense-block=False --prefix="pure-speedyaw_" --num-iter=50000 --img-freq=250 --data-path-scratch="/mnt/ds3lab-scratch/lucala/datasets/CARLA/" --tfrecord=""
+CUDA_VISIBLE_DEVICES=4,5,6,7 python train_onmove_distr_dataset.py --gpu 0 1 2 3 --denseBlock=False --prefix="pure-speedyaw_" --num-iter=50000 --img-freq=250 --data-path-scratch="/mnt/ds3lab-scratch/lucala/datasets/CARLA/" --tfrecord=""
 ```
 
 The above case has 8 GPUs, where the last four are being used. Adjust accordingly.
