@@ -28,7 +28,9 @@ from os import listdir, makedirs, system
 from os.path import exists
 from argparse import ArgumentParser
 from skimage.draw import line_aa
-import ../preprocessing_situ_all_data as pp
+path_to_pp = '../'
+sys.path.insert(0, path_to_pp)
+import preprocessing_situ_all_data as pp
 
 thresh = 96
 
@@ -110,7 +112,7 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
                 model.direction = tf.placeholder(tf.uint8, shape=direction_batch_shape,name='direction')
 
                 # Construct the model
-                pred, _, _, rgb_pred, seg_pred, dep_pred, _, _, trans_pred, dir_pred = model.forward(model.input_batch, model.map_batch, model.transformation_batch, model.rgb_cam, model.seg_cam, model.dep_cam, model.direction, 0)
+                pred, _, _, rgb_pred, seg_pred, dep_pred, _, _, trans_pred, dir_pred, sy_pred = model.forward(model.input_batch, model.map_batch, model.transformation_batch, model.rgb_cam, model.seg_cam, model.dep_cam, model.direction, 0)
 
                 model.G = tf.stack(axis=3, values=pred)
                 model.trans_pred = trans_pred

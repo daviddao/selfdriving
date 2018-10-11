@@ -65,7 +65,6 @@ def set_dest_path(path, _samples_per_record, _K, _T, _image_size, _seq_length, _
     samples_per_record = _samples_per_record
     K = _K
     T = _T
-    prescale = _prescale
     crop_size = _image_size
     image_size = _image_size
     seq_length = _seq_length
