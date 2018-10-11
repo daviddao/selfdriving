@@ -111,7 +111,7 @@ def main(date, drive, file_loc, storage_loc):
 
     # load raw data
     dataset = load_dataset(date, drive)
-    tracklet_rects, tracklet_types = load_tracklets_for_frames(len(list(dataset.velo)), 'data/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(date, date, drive))
+    tracklet_rects, tracklet_types = load_tracklets_for_frames(len(list(dataset.velo)), basedir+'{}/{}_drive_{}_sync/tracklet_labels.xml'.format(date, date, drive))
 
     # extract velocity, position and timestamps
     dataset_velo = list(dataset.velo)

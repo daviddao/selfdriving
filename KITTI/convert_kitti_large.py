@@ -1,6 +1,7 @@
 #CONVERTS KITTI TO TFRECORD WITH GRID MAP AND RGB. SEGMENTATION AND DEPTH ARE SET TO BLACK.
 
 from PIL import Image, ImageDraw
+import math
 import numpy as np
 import glob
 from tqdm import tqdm
@@ -110,7 +111,7 @@ def main(drive, date, storage_loc, file_loc, prefix, _samples_per_record, _K, _T
     preprocessing_situ_all_data.update_episode_reset_globals(prefix)
     ind = 0
     dataset = load_dataset(date, drive)
-    tracklet_rects, tracklet_types = load_tracklets_for_frames(len(list(dataset.velo)), 'data/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(date, date, drive))
+    tracklet_rects, tracklet_types = load_tracklets_for_frames(len(list(dataset.velo)), basedir+'{}/{}_drive_{}_sync/tracklet_labels.xml'.format(date, date, drive))
 
     # extract velocity, timestamps, coordinates and RGB image
     dataset_velo = list(dataset.velo)
@@ -180,9 +181,12 @@ def main(drive, date, storage_loc, file_loc, prefix, _samples_per_record, _K, _T
 
         speed = np.linalg.norm([curr_oxts.vf, curr_oxts.vl])*np.sign(curr_oxts.vf) #need to flip sign because norm does not account for backward driving case
 
+        # obtain RGB image
+        cam2_image, cam3_image = dataset.get_rgb(curr_frame)
+        
         # pass information to preprocessing script. will bundle frames to TFRecord once enough are received.
         preprocessing_situ_all_data.main(gridmap,
-            np.asarray(Image.open(rgb).resize((1920,640),Image.ANTIALIAS)), np.asarray(imblack),
+            np.asarray(cam2_image.resize((1920,640),Image.ANTIALIAS)), np.asarray(imblack),
             np.asarray(imblack),
             yaw_rate, speed)
 
