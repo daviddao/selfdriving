@@ -397,7 +397,7 @@ def load_gridmap_onmove_tfrecord(ind, size, frame_count, useCombinedMask=False):
 
     return target_seq, input_seq, maps, tf_matrix
 
-def convert_tfrecord(clips, return_camera_rgb, return_camera_segmentation, return_camera_depth, return_direction, useCombinedMask=False):
+def convert_tfrecord(return_camera_rgb, return_camera_segmentation, return_camera_depth, return_direction, useCombinedMask=False):
     samples = np.arange(samples_per_record)
     shapes = np.repeat(np.array([image_size]), 1, axis=0)
     sequence_steps = np.repeat(np.array([1 + seq_steps * (K + T)]), 1, axis=0)

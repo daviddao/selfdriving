@@ -11,7 +11,7 @@ import preprocessing_situ_all_data
 def main(file_loc, storage_loc, prefix, _samples_per_record, _K, _T, _image_size, _seq_length, _step_size):
     #setup preprocessing script.
     preprocessing_situ_all_data.set_dest_path(storage_loc, _samples_per_record, _K, _T, _image_size, _seq_length, _step_size)
-    preprocessing_situ_all_data.update_episode(prefix)
+    preprocessing_situ_all_data.update_episode_reset_globals(prefix)
     ind = 0
     for file in tqdm(sorted(glob.glob(file_loc+'gridmap_*_occupancy.png'))):
         ind += 1
