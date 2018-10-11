@@ -80,14 +80,13 @@ class MCNET(object):
                 for t in range(self.K):
                     timestep = iter_index * (self.K + self.T) + t
                     #gridmap part   #removed motion maps since we do not have underlying road in carla/kitti and would need to predict it for pure eval
-                    #motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :], motion_maps[:,:,:,timestep,:]], axis=3)
                     motion_enc_input = tf.concat([input_tensor[:, :, :, timestep, :]], axis=3)
                     transform_matrix = ego_motions[:,timestep]
                     h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
                     h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
                     decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
                     pre_gm_pred.append(tf.identity(decoded_output))
-                    prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
+                    prediction_output = decoded_output
                     prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
                     gm_pred.append(tf.identity(prediction_output))
                     self.transform_hidden_states(transform_matrix)
@@ -110,13 +109,12 @@ class MCNET(object):
                 for t in range(self.T):
                     timestep = iter_index * (self.K + self.T) + self.K + t
                     #gridmap part
-                    #motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map, motion_maps[:,:,:,timestep,:]], axis=3)
                     motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map], axis=3)
                     h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
                     h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
                     decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
                     pre_gm_pred.append(tf.identity(decoded_output))
-                    prediction_output = decoded_output # self.motion_maps_combined(motion_maps[:,:,:,timestep + self.maps_offset,:], decoded_output, reuse=reuse)
+                    prediction_output = decoded_output
                     prediction_output = spatial_transformer_network((prediction_output + 1) / 2, transform_matrix[:,0,:6]) * 2 - 1
                     gm_pred.append(tf.identity(prediction_output))
                     self.transform_hidden_states(transform_matrix)
@@ -137,7 +135,7 @@ class MCNET(object):
         return pred, gm_pred, pre_gm_pred, rgb_pred, seg_pred, dep_pred, grid_posterior, img_posterior, trans_pred, dir_pred, speedyaw_pred
 
     def conv_data(self, rgb, seg, dep, direction, gridmap, transform_matrix, reuse):
-                #insipred by SNA model from https://arxiv.org/pdf/1710.05268.pdf
+        #insipred by SNA model from https://arxiv.org/pdf/1710.05268.pdf
         res_in = []
         rgb_conv1 = relu(conv2d(rgb, output_dim=self.df_dim, k_h=8, k_w=8, d_h=2, d_w=2, name='rgb_conv1', reuse=reuse), useSELU=self.useSELU)
         seg_conv1 = relu(conv2d(seg, output_dim=self.gf_dim, k_h=8, k_w=8, d_h=2, d_w=2, name='seg_conv1', reuse=reuse), useSELU=self.useSELU)
@@ -369,41 +367,20 @@ class MCNET(object):
 
     def dense_block(self, h_comb, reuse=False):
         if self.useDense:
-            #print("Using dense block...")
             conv3_1 = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
                                                      dilation_rate=1, name='mot_dil_conv3_1', reuse=reuse), useSELU=self.useSELU)
             conv3_2 = relu(dilated_conv2d(conv3_1, output_dim=self.gf_dim * 2, k_h=3, k_w=3,
                                                      dilation_rate=2, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
             return conv3_2, 0
         else:
-            #print("Using VAE...")
-            #print(h_comb.shape)
-            #first_layer = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim * 2, k_h=3, k_w=3,dilation_rate=1, name='mot_dil_conv3_1', reuse=reuse),useSELU=self.useSELU)
             second_layer = relu(dilated_conv2d(h_comb, output_dim=self.gf_dim, k_h=3, k_w=3,dilation_rate=1, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
-            #first_layer = relu(conv2d(h_comb, output_dim=self.gf_dim * 2, k_h=3, k_w=3, name='mot_dil_conv3_1', reuse=reuse),useSELU=self.useSELU)
-            #second_layer = relu(conv2d(first_layer, output_dim=self.gf_dim, k_h=3, k_w=3, name='mot_dil_conv3_2', reuse=reuse), useSELU=self.useSELU)
-            #print(second_layer)
-            #print(second_layer.shape)
+
             with tf.variable_scope("scale", reuse=reuse):
                 scale = tf.layers.dense(second_layer, self.gf_dim, tf.nn.softplus)
             latent = tf.contrib.distributions.MultivariateNormalDiag(second_layer, scale)
-            #print(latent)
-            #print(latent.sample().shape)
-            #logit = tf.layers.dense(latent.sample(), np.prod(second_layer.shape))
             logit = latent.sample(self.samples)
-            #print(logit.shape)
             logit = tf.reshape(logit, [-1] + second_layer.shape.as_list())
-            #print(logit.shape)
             logit = tf.reduce_mean(logit, axis=0)
-            #print(logit.shape)
-            #logit = tf.reduce_mean(tf.contrib.distributions.Independent(tf.contrib.distributions.Bernoulli(logit), 2).mean(), axis=0)
-            #print(tt.shape)
-            #shape_deconv = [self.batch_size, self.image_size[0] // 8, self.image_size[1] // 8, self.gf_dim]
-            #shape_deconv2 = [self.batch_size, self.image_size[0] // 4, self.image_size[1] // 4, self.gf_dim]
-
-            #first_layer_decode = relu(deconv2d(logit, output_shape=shape_deconv, k_h=3, k_w=3, name='decode_1', reuse=reuse),useSELU=self.useSELU)
-            #second_layer_decode = relu(deconv2d(first_layer_decode, output_shape=shape_deconv2, k_h=3, k_w=3, name='decode_2', reuse=reuse), useSELU=self.useSELU)
-            #return second_layer_decode
             return logit, latent
 
     def dec_cnn(self, h_comb, res_connect, reuse=False):

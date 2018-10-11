@@ -1,5 +1,6 @@
 """
 Based on train_gridmap.py but with occlusion map as additional input of motion and content decoder
+Code foundation was taken from cifar10 multi-gpu example.
 """
 import sys
 import time
@@ -20,36 +21,6 @@ from argparse import ArgumentParser
 import time
 import datetime
 from PIL import Image
-
-def tf_rad2deg(rad):
-    pi_on_180 = 0.017453292519943295
-    return rad / pi_on_180
-
-def inverseTransMat(nextTf):
-    z = tf.zeros([1,1], dtype=np.float32)
-    #mat[0,:] = nextTf[0,0:3]
-    #mat[1,:] = nextTf[0,3:6]
-    matFull = tf.clip_by_value(nextTf,-1,1)
-    #mean theta extracted from matrix, only use ARCSIN for +- range, take directly from [3,8]
-    theta = -(tf.asin(-matFull[0,1])+tf.asin(matFull[0,3]))/2
-    imsize = 96 // 2
-    pixel_diff_y = matFull[1,2] * ((imsize - 1) / 2.0)
-    pixel_diff_x = matFull[0,2] * ((imsize - 1) / 2.0)
-    py = pixel_diff_y / tf.cos(theta)
-    px = pixel_diff_x / tf.sin(theta)
-    pixel_diff = tf.cond(tf.equal(tf.cos(theta),0), lambda: px, lambda: (px+py)/2)
-    pixel_diff = tf.cond(tf.equal(tf.sin(theta),0), lambda: py, lambda: pixel_diff)
-    #if tf.is_inf(px) or tf.is_nan(px):
-    #    pixel_diff = py
-    #elif tf.is_inf(py) or tf.is_nan(py):
-    #    pixel_diff = px
-    #else:
-    #    pixel_diff = (px+py)/2
-    pixel_size = 45.6 * 1.0 / imsize
-    period_duration = 1.0 / 24
-    vel = pixel_diff * pixel_size / period_duration
-    yaw_rate = tf_rad2deg(theta) / period_duration
-    return vel, yaw_rate
 
 def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
          T, num_iter, gpu, sequence_steps, d_input_frames, tfrecordname, useSELU=True,
@@ -87,7 +58,6 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
               + "_selu=" + str(useSELU)
               + "_comb=" + str(useCombinedMask)
               + "_predV=" + str(predOcclValue))
-              #+ "_datetime=" + str(date_now.hour)+":"+str(date_now.minute)+"-"+str(date_now.day)+"-"+str(date_now.month)+"-"+str(date_now.year))
 
     print("\n" + prefix + "\n")
     checkpoint_dir = model_path_scratch + "models/" + prefix + "/"
@@ -154,7 +124,6 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
     with graph.as_default():
 
         print("Setup dataset...")
-        #def input_fn():
         # extract meta data from tfrecord name directly
         imgsze_tf, seqlen_tf, K_tf, T_tf, fc_tf, nr_samples, datasze_tf = parse_tfrecord_name(tfrecordname)
         assert(data_w == datasze_tf[0] and data_h == datasze_tf[1])
@@ -162,6 +131,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         assert(sequence_steps <= seqlen_tf)
         assert(K <= K_tf)
         assert(T <= T_tf)
+        
+        # parser to read TFRecord file
         def _parse_function(example_proto):
             keys_to_features = {'input_seq': tf.FixedLenFeature((), tf.string),
                                 'target_seq': tf.FixedLenFeature((), tf.string),
@@ -575,6 +546,37 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                     print("Save model...")
                     print("#"*50)
                     model.save(sess, checkpoint_dir, counter+prevNr)
+                    
+                    
+def tf_rad2deg(rad):
+    pi_on_180 = 0.017453292519943295
+    return rad / pi_on_180
+
+def inverseTransMat(nextTf):
+    z = tf.zeros([1,1], dtype=np.float32)
+    #mat[0,:] = nextTf[0,0:3]
+    #mat[1,:] = nextTf[0,3:6]
+    matFull = tf.clip_by_value(nextTf,-1,1)
+    #mean theta extracted from matrix, only use ARCSIN for +- range, take directly from [3,8]
+    theta = -(tf.asin(-matFull[0,1])+tf.asin(matFull[0,3]))/2
+    imsize = 96 // 2
+    pixel_diff_y = matFull[1,2] * ((imsize - 1) / 2.0)
+    pixel_diff_x = matFull[0,2] * ((imsize - 1) / 2.0)
+    py = pixel_diff_y / tf.cos(theta)
+    px = pixel_diff_x / tf.sin(theta)
+    pixel_diff = tf.cond(tf.equal(tf.cos(theta),0), lambda: px, lambda: (px+py)/2)
+    pixel_diff = tf.cond(tf.equal(tf.sin(theta),0), lambda: py, lambda: pixel_diff)
+    #if tf.is_inf(px) or tf.is_nan(px):
+    #    pixel_diff = py
+    #elif tf.is_inf(py) or tf.is_nan(py):
+    #    pixel_diff = px
+    #else:
+    #    pixel_diff = (px+py)/2
+    pixel_size = 45.6 * 1.0 / imsize
+    period_duration = 1.0 / 24
+    vel = pixel_diff * pixel_size / period_duration
+    yaw_rate = tf_rad2deg(theta) / period_duration
+    return vel, yaw_rate
 
 
 def str2bool(v):

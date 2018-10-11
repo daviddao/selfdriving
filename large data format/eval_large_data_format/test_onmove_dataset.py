@@ -1,29 +1,3 @@
-"""
-Testscript for gridmap predictions of the train_onmove.py MCNet
-Python 2
-
-Inspired by https://github.com/rubenvillegas/iclr2017mcnet/blob/master/src/test_kth.py
-MIT License, download 07/01/2017
-
-Dependencies:
-  - mcnet.py (for original network architecture)
-  - mcnet_deep_tracking.py (for deep tracking)
-
-Usage:
-  (CUDA_VISIBLE_DEVICES=...) python test_onmove.py [--prefix PREFIX] [--image_size IMAGE_SIZE] [--K K] [--T T] [--gpu GPU] [--data_path DATA_PATH]
-
-  Args:
-    prefix - The prefix for the model which should be tested
-    image_size - Size of images which should be used for testing (test images in data_path must have this shape)
-    K - Determines how many images the network will get to see before prediction
-    T - Determines how many images the network should predict
-    gpu - GPU device id
-    data_path - Path where the test data is stored. The parent directory must contain a file "test_data_list.txt" where all test file paths are listed
-
-  Output:
-    The predictions of the network are saved to ../results/images/Gridmap/PREFIX/
-    In addition the compressed numpy array of PSNR errors on the test data is saved to ../results/quantitative/Gridmap/PREFIX/results_model=best_model.npz.
-"""
 import os
 import cv2
 import sys
@@ -47,8 +21,8 @@ from skimage.draw import line_aa
 from PIL import Image
 from PIL import ImageDraw
 
-def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, useSharpen, num_gpu,
-include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss):
+def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, useSharpen, num_gpu, include_road, num_iters,
+seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=20, predOcclValue=-1, beta=0, batch_size=1):
 
     gpu = np.arange(num_gpu)
     #need at least 1 gpu to run code
@@ -104,7 +78,7 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
         dep_cam = tf.expand_dims(dep_cam[:(K+T)*seq_steps,:,:],-1)
         direction = direction[:(K+T)*seq_steps,:]
 
-        speedyaw = tf.convert_to_tensor([inverseTransMat(tf_matrix[y,:]) for y in range((K+T)*sequence_steps)],dtype=tf.float32)
+        speedyaw = tf.convert_to_tensor([inverseTransMat(tf_matrix[y,:]) for y in range((K+T)*seq_steps)],dtype=tf.float32)
 
         return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction, speedyaw
 
@@ -113,25 +87,31 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
     if os.path.isdir(tfrecordsLoc):
         num_records = len(os.listdir(tfrecordsLoc))
         print("Loading from directory. " + str(num_records) + " tfRecords found.")
-        files = tf.data.Dataset.list_files(tfrecordsLoc + "/" + "*.tfrecord", shuffle=False) #.shuffle(num_records) no shuffling!
-        #dataset = files.interleave(lambda x: tf.data.TFRecordDataset(x),cycle_length=1)
+        files = tf.data.Dataset.list_files(tfrecordsLoc + "/" + "*.tfrecord", shuffle=False)
         dataset = files.flat_map(lambda x: tf.data.TFRecordDataset(x))
     else:
         print("Loading from single tfRecord. " + str(nr_samples) + " entries in tfRecord.")
         dataset = tf.data.TFRecordDataset([tfrecordsLoc + '.tfrecord'])
-    dataset = dataset.map(_parse_function) #, num_parallel_calls=64)
+    dataset = dataset.map(_parse_function)
     dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(1))
-    #dataset = dataset.prefetch(2)
 
     checkpoint_dir = checkpoint_dir_loc + prefix + "/"
     best_model = None  # will pick last model
 
     # initialize model
-    model = MCNET(image_size=[image_size, image_size], data_size=[data_h, data_w], batch_size=1, K=K,
-              T=T, c_dim=1, checkpoint_dir=checkpoint_dir,
-              iterations=seq_steps, useSELU=True, motion_map_dims=2,
-              showFutureMaps=False, useGAN=useGAN, useSharpen=useSharpen,
-              useDenseBlock=useDenseBlock, samples=samples, sy_loss=sy_loss)
+    model = MCNET(image_size=[image_size, image_size],
+                  data_size=[data_h, data_w], c_dim=1,
+                  K=K, batch_size=batch_size, T=T,
+                  checkpoint_dir=checkpoint_dir,
+                  iterations=seq_steps,
+                  d_input_frames=d_input_frames,
+                  useSELU=True, motion_map_dims=2,
+                  showFutureMaps=True,
+                  predOcclValue=predOcclValue,
+                  useGAN=(beta != 0),
+                  useSharpen=useSharpen,
+                  useDenseBlock=useDenseBlock,
+                  samples=samples, sy_loss=sy_loss)
 
     # Setup model (for details see mcnet_deep_tracking.py)
     model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
@@ -143,7 +123,7 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
             seq_batch, input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction, speedyaw = iterator.get_next()
 
             # Construct the model
-            pred, trans_pred, pre_trans_pred, rgb_pred, seg_pred, dep_pred, speedyaw_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction)
+            pred, trans_pred, pre_trans_pred, rgb_pred, seg_pred, dep_pred, trans_pred, dir_pred, speedyaw_pred = model.forward(input_batch, map_batch, transformation_batch, rgb_cam, seg_cam, dep_cam, direction)
 
             model.target = seq_batch
             model.motion_map_tensor = map_batch
@@ -152,8 +132,8 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
             model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
             model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
 
-            model.sy = tf.reshape(speedyaw,[batch_size*(K+T)*sequence_steps,2])
-            model.sy_pred = tf.reshape(speedyaw_pred,[batch_size*(K+T)*sequence_steps,2])
+            model.sy = tf.reshape(speedyaw,[batch_size*(K+T)*seq_steps,2])
+            model.sy_pred = tf.reshape(speedyaw_pred,[batch_size*(K+T)*seq_steps,2])
             model.rgb = rgb_cam
             model.seg = seg_cam
             model.dep = dep_cam
@@ -181,9 +161,6 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
                 with tf.variable_scope("DIS", reuse=True):
                     model.D_, model.D_logits_ = model.discriminator(gen_data)
 
-                # Standard loss for real and fake (only for display and parameter
-                # purpose, no loss trained on)
-
                 model.d_loss_real = tf.reduce_mean(
                     tf.nn.sigmoid_cross_entropy_with_logits(
                         logits=model.D_logits, labels=tf.ones_like(model.D)
@@ -196,7 +173,7 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
                 )
 
 
-            if useGAN: #use GAN
+            if useGAN:
                 model.L_GAN = -tf.reduce_mean(model.D_)
                 model.d_loss = model.d_loss_fake + model.d_loss_real
             else:
@@ -304,10 +281,8 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
                 cpsnr[t] = measure.compare_psnr(pred, target)
 
                 pred = draw_frame(pred, t < K)
-                #target = draw_frame(target, t < K)
 
                 pred_list.append(pred)
-                #true_list.append(target)
                 tmp = (true_list[t]*255).astype("uint8")
                 tmp = draw_frame(tmp, t < K)
 
@@ -353,6 +328,7 @@ include_road, num_iters, seq_steps, useDenseBlock, samples, checkpoint_dir_loc, 
                             ".gif", curr_gif_pred, 'GIF', **kwargs)
             imageio.mimsave(savedir + "/img_gt_" + str(i).zfill(3) +
                             ".gif", curr_gif_gt, 'GIF', **kwargs)
+            # save speed and yaw rate prediction
             if sy_loss:
                 txtname = savedir + "/speedyaw_" + str(i).zfill(3) + ".txt"
                 np.savetxt(txtname, np.concatenate([sy, sy_pred],axis=1))
@@ -411,7 +387,7 @@ if __name__ == "__main__":
     parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="evaldata_imgsze=96_fc=20_datasze=240x80_seqlen=1_K=9_T=10_size=20",
                         help="Either folder name containing tfrecords or name of single tfrecord.")
     parser.add_argument("--road", type=str2bool, dest="include_road", default=False,
-                        help="Should road be included?")
+                        help="Include horizon map. (DEPRECATED: no horizon maps in current dataset)")
     parser.add_argument("--num-iters", type=int, dest="num_iters", default=20,
                         help="How many files should be checked?")
     parser.add_argument("--seq-steps", type=int, dest="seq_steps", default=1,
@@ -427,7 +403,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_h", type=int, dest="data_h",
                         default=80, help="rgb/seg/depth image width size")
     parser.add_argument("--speed-yaw-loss", type=str2bool, dest="sy_loss",
-                        default=False, help="Add additional layer in network to compute speed yaw output?")
+                        default=True, help="Add additional layer in network to compute speed yaw output?")
 
     args = parser.parse_args()
     main(**vars(args))
