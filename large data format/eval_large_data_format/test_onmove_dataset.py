@@ -35,6 +35,8 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
     assert(seq_steps <= seqlen_tf)
     assert(K <= K_tf)
     assert(T <= T_tf)
+
+    # parser for TFRecord files
     def _parse_function(example_proto):
         keys_to_features = {'input_seq': tf.FixedLenFeature((), tf.string),
                             'target_seq': tf.FixedLenFeature((), tf.string),
@@ -67,6 +69,7 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
 
         direction = tf.reshape(tf.decode_raw(parsed_features['direction'], tf.uint8), direction_batch_shape, name='reshape_direction')
 
+        # in case training parameters are set smaller than dataset parameters
         if (K+T)*seq_steps < input_seq.shape[2]:
             target_seq = target_seq[:,:,:(K+T)*seq_steps,:]
             input_seq = input_seq[:,:,:(K+T)*seq_steps,:]
@@ -113,7 +116,7 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
                   useDenseBlock=useDenseBlock,
                   samples=samples, sy_loss=sy_loss)
 
-    # Setup model (for details see mcnet_deep_tracking.py)
+    # Setup model and iterator
     model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
     iterator = dataset.make_initializable_iterator()
     with tf.variable_scope(tf.get_variable_scope()) as vscope:
@@ -184,6 +187,7 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
 
             tf.get_variable_scope().reuse_variables()
 
+    # add string to indicate whether horizon map is included in prediction
     if include_road:
         prefix = prefix + "_road_"
     else:
@@ -198,11 +202,13 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
 
         model.saver = tf.train.Saver()
 
+        # where to store results
         quant_dir = "../results/quantitative/Gridmap/" + prefix + "/"
         save_path = quant_dir + "results_model=" + "best_model" + ".npz"
         if not exists(quant_dir):
             makedirs(quant_dir)
 
+        # load model
         bool, ckpt = model.load(sess, checkpoint_dir, best_model)
         print(checkpoint_dir)
         if bool:
@@ -261,12 +267,11 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
                                 sbatch[k,l,m] = maps_road_with_lines[k,l,m]
                             if np.sum(samples_seq_step[k,l,m,:]) <= 2:
                                 samples_seq_step[k,l,m] = maps_road_with_lines[k,l,m]
-
-
             else:
                 samples_seq_step = np.maximum(occ_map_step * 0.2, samples_seq_step)
                 sbatch = np.maximum(occ_map_step * 0.2, sbatch)
 
+            # creating gt and prediction grid map gifs
             pred_list = np.split(sbatch[:K, :, :, :], K, axis=0)
             pred_list = [np.squeeze(pred) for pred in pred_list]
             true_list = np.split(sbatch[:K+T, :, :, :], K+T, axis=0)
@@ -301,6 +306,7 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
             imageio.mimsave(savedir + "/gt_" + str(i).zfill(3) +
                             ".gif", true_list, 'GIF', **kwargs)
 
+            # create compilation and gifs of image channels
             curr_frame = []
             curr_gif_pred = []
             curr_gif_gt = []
@@ -340,6 +346,7 @@ def tf_rad2deg(rad):
     pi_on_180 = 0.017453292519943295
     return rad / pi_on_180
 
+#inverse transformation, see transformation in preprocessing script
 def inverseTransMat(nextTf):
     z = tf.zeros([1,1], dtype=np.float32)
     matFull = tf.clip_by_value(nextTf,-1,1)
@@ -379,9 +386,9 @@ if __name__ == "__main__":
     parser.add_argument("--useGAN", type=str2bool, dest="useGAN",
                         default=False, help="Model trained with GAN?")
     parser.add_argument("--useSharpen", type=str2bool, dest="useSharpen",
-                        default=False, help="Model trained with sharpener?")
-    parser.add_argument("--num-gpu", type=int, dest="num_gpu", required=True,
-                        help="number of gpus")
+                        default=False, help="Model trained with sharpener? (deprecated)")
+    parser.add_argument("--num-gpu", type=int, dest="num_gpu", default=1,
+                        help="number of gpus (deprecated, does not use more than 1 GPU)")
     parser.add_argument("--data-path", type=str, dest="data_path", default="./tfrecords/",
                         help="Path where the test data is stored")
     parser.add_argument("--tfrecord", type=str, dest="tfrecord", default="evaldata_imgsze=96_fc=20_datasze=240x80_seqlen=1_K=9_T=10_size=20",

@@ -27,8 +27,11 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
          useCombinedMask=False, predOcclValue=1, img_save_freq=200, model_name="",
          useSharpen=False, useDenseBlock=True, samples=1, data_path_scratch="", model_path_scratch=""):
 
+    # add / if string does not have
     data_path_scratch = data_path_scratch if data_path_scratch[-1] == "/" else data_path_scratch+"/"
     model_path_scratch = model_path_scratch if model_path_scratch[-1] == "/" else model_path_scratch+"/"
+
+    # extract information from tfrecord string if none provided
     tfRecordFolder = False
     if tfrecordname == "":
         tfRecordFolder = True
@@ -43,6 +46,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
     date_now = datetime.datetime.now()
 
+    # prefix string for model
     prefix = (model_name
             + "GRIDMAP_MCNET_onmove"
               + "_image_size=" + str(image_size)
@@ -73,6 +77,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
     num_gpu = len(gpu)
 
+    # in case we are continuing training, extract previous value to continue counting
     try:
         tmp = sorted(glob.glob(samples_dir+'*.png'))[-1]
         tmp = tmp.split('/')[-1]
@@ -131,7 +136,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         assert(sequence_steps <= seqlen_tf)
         assert(K <= K_tf)
         assert(T <= T_tf)
-        
+
         # parser to read TFRecord file
         def _parse_function(example_proto):
             keys_to_features = {'input_seq': tf.FixedLenFeature((), tf.string),
@@ -180,6 +185,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
             return target_seq, input_seq, maps, tf_matrix, rgb_cam, seg_cam, dep_cam, direction, speedyaw
 
+        # extract data from folder containing TFRecords or from single tfrecord
         if tfRecordFolder:
             num_records = len(os.listdir(data_path_scratch))
             print("Loading from directory. " + str(num_records) + " tfRecords found.")
@@ -191,11 +197,12 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
             print("Loading from single tfRecord. " + str(nr_samples) + " entries in tfRecord.")
             len_trainfiles = nr_samples
             dataset = tf.data.TFRecordDataset([data_path_scratch + tfrecordname + '.tfrecord'])
+
+        # create the dataset
         dataset = dataset.map(_parse_function, num_parallel_calls=128)
         dataset = dataset.apply(tf.contrib.data.shuffle_and_repeat(1000))
         dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
         dataset = dataset.prefetch(num_gpu*128)
-
 
         print("Setup optimizer...")
 
@@ -204,7 +211,6 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
         opt_E = tf.train.AdamOptimizer(lr_G, beta1=0.5)
         opt_C = tf.train.AdamOptimizer(lr_G, beta1=0.5)
-
 
         # Create a variable to count number of train calls
         global_step = tf.get_variable(
@@ -231,7 +237,6 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                       useSharpen=useSharpen,
                       useDenseBlock=useDenseBlock,
                       samples=samples)
-
 
         input_shape = [batch_size, model.image_size[0],model.image_size[1], sequence_steps * (K + T), model.c_dim + 1]
         motion_map_shape = [batch_size, model.image_size[0],model.image_size[1], sequence_steps * (K + T) + model.maps_offset, 2] #last arg. motion_map_dims=2
@@ -275,7 +280,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             model.speedyaw_error = tf.reduce_mean(tf.squared_difference(model.speedyaw,model.speedyaw_pred))
                             model.direction_error = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf.transpose(dir_pred,[1,0,2]),labels=direction))
                             model.odometry_error = model.direction_error + model.transformation_error + model.speedyaw_error
-                            
+
                             model.rgb = rgb_cam
                             model.seg = seg_cam
                             model.dep = dep_cam
@@ -335,7 +340,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                                 divergence = tf.stack([tf.contrib.distributions.kl_divergence(post, prior) for post in grid_posterior],1)
                                 model.L_img = model.weighted_BCE_loss(model.G_masked, model.target_masked)
                                 model.L_img = -(tf.reduce_mean(model.L_img) - tf.reduce_mean(divergence)) #Loss = -ELBO = likelihood - divergence
-                                
+
                             model.L_BCE = model.L_img
                             if (beta != 0): #use GAN
                                 model.L_GAN = -tf.reduce_mean(model.D_)
@@ -437,9 +442,11 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
         max_pred = min_pred = max_labels = min_labels = img_err = -1
         errD = errD_fake = errD_real = errG = 0
 
+        # main training loop
         while iters < num_iter:
             sess.run(iterator.initializer)
 
+            # loop over dataset
             for i in range(len_trainfiles//(batch_size*num_gpu)):
 
                 load_start = time.time()
@@ -466,6 +473,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                 odometry_error = model.odometry_error.eval(session=sess)
                 speedyaw_error = model.speedyaw_error.eval(session=sess)
 
+                # GAN training information
                 training_models_info = ""
                 if not updateD:
                     training_models_info += ", D not trained"
@@ -482,7 +490,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
                 counter += 1
 
-
+                # print current training information
                 print(
                     "Iters: [%5d|%5d] time: %4.4f, d_loss: %.8f, L_GAN: %.8f, gridmap_loss: %.8f, images_loss: %.8f, elbo_recon_loss: %.8f, elbo_div_loss: %.8f, %s"
                     % (iters_G+prevNr, iters+prevNr, time.time() - start_time, errD, errG, img_err, cam_err, cam_mean_err, cam_div_mean_err, training_models_info)
@@ -492,6 +500,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                     % (iters_G+prevNr, iters+prevNr, errD_fake, errD_real, max_pred, min_pred, max_labels, min_labels, odometry_error, speedyaw_error)
                 )
 
+                # every img_save_freq save training sample and model
                 if np.mod(counter, img_save_freq) == 1:
                     samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred, sy, sy_pred = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask, model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred, model.speedyaw, model.speedyaw_pred])
 
@@ -543,8 +552,8 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                     print("Save model...")
                     print("#"*50)
                     model.save(sess, checkpoint_dir, counter+prevNr)
-                    
-                    
+
+
 def tf_rad2deg(rad):
     pi_on_180 = 0.017453292519943295
     return rad / pi_on_180
@@ -614,7 +623,7 @@ if __name__ == "__main__":
     parser.add_argument("--prefix", type=str, dest="model_name",
                         default="", help="Prefix appended to model name for easier search")
     parser.add_argument("--sharpen", type=str2bool, dest="useSharpen",
-                        default=False, help="If sharpening should be used. DEPRECATED.")
+                        default=False, help="If sharpening should be used. (deprecated)")
     parser.add_argument("--tfrecord", type=str, dest="tfrecordname",
                         default="", help="tfrecord name")
     parser.add_argument("--denseBlock", type=str2bool, dest="useDenseBlock", default=False,
