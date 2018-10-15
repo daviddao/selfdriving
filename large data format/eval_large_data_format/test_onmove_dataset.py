@@ -22,7 +22,7 @@ from PIL import Image
 from PIL import ImageDraw
 
 def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, useSharpen, num_gpu, include_road, num_iters,
-seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=20, predOcclValue=-1, beta=0, batch_size=1):
+seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=20, predOcclValue=-1, beta=0, batch_size=1, cutout_input=0):
 
     gpu = np.arange(num_gpu)
     #need at least 1 gpu to run code
@@ -80,6 +80,18 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
         seg_cam = seg_cam[:(K+T)*seq_steps,:,:,:]
         dep_cam = tf.expand_dims(dep_cam[:(K+T)*seq_steps,:,:],-1)
         direction = direction[:(K+T)*seq_steps,:]
+        
+        if cutout_input == 1:
+            zero = tf.zeros(target_seq.shape)
+            target_seq = tf.concat([zero[:,:,:K,:], target_seq[:,:,K:,:]], 2)
+            input_seq = tf.concat([zero[:,:,:K,:], input_seq[:,:,K:,:]], 2)
+            maps = tf.concat([zero[:,:,:K+1,:], maps[:,:,K+1:,:]], 2)
+        elif cutout_input == 2:
+            rgb_cam = tf.concat([tf.zeros(rgb_cam.shape)[:K], rgb_cam[K:]], 0)
+        elif cutout_input == 3:
+            seg_cam = tf.concat([tf.zeros(seg_cam.shape)[:K], seg_cam[K:]], 0)
+        elif cutout_input == 4:
+            dep_cam = tf.concat([tf.zeros(dep_cam.shape)[:K], dep_cam[K:]], 0)
 
         speedyaw = tf.convert_to_tensor([inverseTransMat(tf_matrix[y,:]) for y in range((K+T)*seq_steps)],dtype=tf.float32)
 
@@ -284,6 +296,7 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
                 target = (target * 255).astype("uint8")
 
                 cpsnr[t] = measure.compare_psnr(pred, target)
+                cssim[t] = measure.compare_ssim(pred, target, multichannel=True)
 
                 pred = draw_frame(pred, t < K)
 
@@ -411,6 +424,8 @@ if __name__ == "__main__":
                         default=80, help="rgb/seg/depth image width size")
     parser.add_argument("--speed-yaw-loss", type=str2bool, dest="sy_loss",
                         default=True, help="Add additional layer in network to compute speed yaw output?")
+    parser.add_argument("--cutout-input", type=int, dest="cutout_input",
+                        default=0, help="Remove channel from evaluation: 0 all input remains, 1 remove grid map, 2 remove RGB, 3 remove segmentation, 4 remove depth.")
 
     args = parser.parse_args()
     main(**vars(args))

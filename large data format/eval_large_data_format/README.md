@@ -14,6 +14,7 @@ Important arguments that can be passed to the script are:
   - chckpt-loc: Location of the model checkpoint file.
   - speed-yaw-loss: Output additional text file containing ground truth and predicted odometry (speed, yaw rate).
   - prefix: Name of the model to use.
+  - cutout_input: Cut out a certain channel of the input to see influence of other channels. 0 - default, 1 - remove grid map, 2 - remove RGB, 3 - remove segmentation, 4 - remove depth. Prediction ground truth still visible for comparison.
 
 Use the following command to run the evaluation script with the provided TFRecord and model:
 ```
