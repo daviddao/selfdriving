@@ -119,6 +119,7 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
                 model.rgb_pred = tf.stack(rgb_pred,1)
                 model.seg_pred = tf.stack(seg_pred,1)
                 model.dep_pred = tf.stack(dep_pred,1)
+                model.speedyaw = sy_pred
 
                 tf.get_variable_scope().reuse_variables()
 
@@ -153,7 +154,7 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
     ppTime = time.time() - ppTime
     if ready:
         evTime = time.time()
-        samples, rgb_pred, seg_pred, dep_pred, tfmat = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred, model.trans_pred],
+        samples, rgb_pred, seg_pred, dep_pred, tfmat, speedyawrate = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred, model.trans_pred, model.speedyaw],
                                                          feed_dict={model.input_batch: gridmap,
                                                                     model.map_batch: gm_map,
                                                                     model.transformation_batch: trans_matrix,
@@ -193,9 +194,9 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
         canvas.create_image(0, 0, image=image1, anchor="nw")
         canvas.update()
         tkTime = time.time() - tkTime
-        return ppTime, evTime, imTime, tkTime
+        return ppTime, evTime, imTime, tkTime, speedyawrate
 
-    return ppTime, 0, 0, 0
+    return ppTime, 0, 0, 0, np.nan
 
 #following functions are from the preprocessing script
 def create_default_element(image_size, seq_length, channel_size):
