@@ -115,7 +115,7 @@ class MCNET(object):
                     timestep = iter_index * (self.K + self.T) + self.K + t
 
                     # gridmap part, use previous prediction for next prediction
-                    transform_matrix = trans_pred[-1]
+                    #transform_matrix = ego_motions[:,timestep] #transform_matrix = trans_pred[-1] need to use true matrix for training
                     motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map], axis=3)
                     h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
                     h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
