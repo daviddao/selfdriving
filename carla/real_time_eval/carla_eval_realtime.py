@@ -74,6 +74,9 @@ def run_carla_client(args):
     # Here we will run args._episode episodes with args._frames frames each.
     number_of_episodes = args._episode
     frames_per_episode = args._frames
+    
+    # set speed and yaw rate variable to default
+    speedyawrate = np.nan
 
     #call init in eval file to load model
     checkpoint_dir_loc = args.chckpt_loc
@@ -172,7 +175,7 @@ def run_carla_client(args):
                         exit()
                     else:
                         #start_time = time.time()
-                        ppTime, evTime, imTime, tkTime = tf_carla_eval.eval(im, rgb, depth, segmentation, -yaw_rate, speed)
+                        ppTime, evTime, imTime, tkTime, speedyawrate = tf_carla_eval.eval(im, rgb, depth, segmentation, -yaw_rate, speed)
                         printTimePerEval(gmTime, ppTime, evTime, imTime, tkTime)
 
                 else:
@@ -193,9 +196,15 @@ def run_carla_client(args):
                         hand_brake=False,
                         reverse=False)
                 else:
-                    control = measurements.player_measurements.autopilot_control
-                    control.steer += random.uniform(-0.01, 0.01)
+                    if np.any(np.isnan(speedyawrate)):
+                        control = measurements.player_measurements.autopilot_control
+                        control.steer += random.uniform(-0.01, 0.01)
+                    else:
+                        control = client.VehicleControl()
+                        control.throttle = speedyaw[0]
+                        control.steer = speedyaw[1]
                     client.send_control(control)
+                        
 
 
 def print_measurements(measurements):
@@ -287,7 +296,7 @@ def main():
                         help="Number of frames per episode.")
     argparser.add_argument("--chckpt-loc", type=str, dest="chckpt_loc", default="../../large data format/eval_large_data_format/model/",
                         help="Location where model checkpoint is stored.")
-    argparser.add_argument("--model-name", type=str, dest="model_name", default="pure-sy-onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1",
+    argparser.add_argument("--model-name", type=str, dest="model_name", default="pure-sy_onlyCARLA_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1",
                         help="Name of model to load.")
 
     args = argparser.parse_args()
