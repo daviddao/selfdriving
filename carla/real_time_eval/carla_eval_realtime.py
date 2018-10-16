@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 import preprocessing_situ
 import preprocessing_situ_all_data
 
-from carla.client import make_carla_client
+from carla.client import make_carla_client, VehicleControl
 from carla.sensor import Camera, Lidar
 from carla.settings import CarlaSettings
 from carla.tcp import TCPConnectionError
@@ -200,9 +200,10 @@ def run_carla_client(args):
                         control = measurements.player_measurements.autopilot_control
                         control.steer += random.uniform(-0.01, 0.01)
                     else:
-                        control = client.VehicleControl()
-                        control.throttle = speedyaw[0]
-                        control.steer = speedyaw[1]
+                        control = VehicleControl()
+                        # speedyawrate contains T entries, first entry is first prediction
+                        control.throttle = speedyawrate[0][0]
+                        control.steer = speedyawrate[0][1]
                     client.send_control(control)
                         
 
