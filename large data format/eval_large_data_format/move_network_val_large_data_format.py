@@ -116,7 +116,7 @@ class MCNET(object):
 
                 #gridmap part, use previous prediction for next prediction
                 motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map], axis=3)
-                transform_matrix = trans_pred[-1]
+                #transform_matrix = trans_pred[-1]
                 h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
                 h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
                 decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
@@ -511,7 +511,17 @@ class MCNET(object):
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
             if model_name is None:
                 model_name = ckpt_name
-            self.saver.restore(sess, os.path.join(checkpoint_dir, model_name))
+            try:
+                self.saver.restore(sess, os.path.join(checkpoint_dir, model_name))
+            except:
+                try:
+                    path = os.path.join(checkpoint_dir, model_name)+'/MCNET.model-80002'
+                    print(path)
+                    saver = tf.train.import_meta_graph(path+'.meta')
+                    saver.restore(sess, path)
+                except:
+                    print("FAILED: could not load any model checkpoint or model files directly.")
+                    return False, ckpt
             return True, ckpt
         else:
             return False, ckpt
