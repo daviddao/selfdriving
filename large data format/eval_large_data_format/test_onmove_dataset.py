@@ -389,7 +389,7 @@ def str2bool(v):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--prefix", type=str, dest="prefix",
-                        default="pure-sy-onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
+                        default="pure-sy_onlyCARLA_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
     parser.add_argument("--image_size", type=int, dest="image_size",
                         default=96, help="Pre-trained model")
     parser.add_argument("--K", type=int, dest="K",
