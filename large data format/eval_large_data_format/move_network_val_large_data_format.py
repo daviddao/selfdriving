@@ -286,7 +286,7 @@ class MCNET(object):
         if self.sy_loss:
             sy_out = tf.concat([tf.layers.dense(tl2, 1, tf.nn.tanh)*100, tf.layers.dense(tl2, 1, tf.nn.tanh)*20], axis=1)
         else:
-            sy_out = [0,0]
+            sy_out = tf.zeros([2])
 
         # second deconv stage
         out_shape2 = [self.batch_size, self.data_size[0] // 4, self.data_size[1] // 4, self.gf_dim]
