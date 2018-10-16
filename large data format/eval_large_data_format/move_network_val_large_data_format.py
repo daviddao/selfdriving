@@ -260,15 +260,20 @@ class MCNET(object):
             latent = 0
 
         # first deconv stage
+        deconv_latent = BasicConvLSTMCell([self.data_size[0] // 4, self.data_size[1] // 4], [3, 3], self.gf_dim)
+        if not reuse:
+            self.deconv_latent_state = tf.zeros([self.batch_size, self.data_size[0] // 8, self.data_size[1] // 8, self.gf_dim*2])
+        de_mot_latent, self.deconv_latent_state = deconv_latent(cell, self.deconv_latent_state, scope="deconv_latent", reuse=reuse)
+
         out_shape1 = [self.batch_size, self.data_size[0] // 4, self.data_size[1] // 4, self.df_dim * 2]
-        deconv1 = relu(deconv2d(cell, output_shape=out_shape1, k_h=3, k_w=3, d_h=2, d_w=2, name='dec_deconv1', reuse=reuse), useSELU=self.useSELU)
+        deconv1 = relu(deconv2d(de_mot_latent, output_shape=out_shape1, k_h=3, k_w=3, d_h=2, d_w=2, name='dec_deconv1', reuse=reuse), useSELU=self.useSELU)
 
         # splitting into separate channels
         rgb_deconv1 = deconv1[:,:,:,:self.df_dim]
         seg_deconv1 = deconv1[:,:,:,self.df_dim:self.df_dim+self.gf_dim]
         dep_deconv1 = deconv1[:,:,:,self.df_dim+self.gf_dim:-3]
 
-        #new version training transformation and direction
+        # new version training transformation and direction
         transformation_deconv1 = tf.layers.flatten(deconv1[:,:,:,-2])
         direction_deconv1 = tf.layers.flatten(deconv1[:,:,:,-1])
         tl1 = tf.layers.dense(transformation_deconv1, self.gf_dim//2, tf.nn.selu)
