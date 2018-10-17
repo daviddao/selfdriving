@@ -279,7 +279,7 @@ class MCNET(object):
         tl1 = tf.layers.dense(transformation_deconv1, self.gf_dim//2, tf.nn.selu)
         tl2 = tf.layers.dense(tl1, 1*3*8, tf.nn.selu)
         dir1 = tf.layers.dense(direction_deconv1, self.gf_dim//2, tf.nn.selu)
-        dir2 = tf.layers.dense(dir1, 1*2, tf.nn.selu)
+        dir2 = tf.layers.dense(dir1, 1*2, tf.nn.sigmoid)
         tl_out = tf.reshape(tl2, [self.batch_size*1,3,8])
         dir_out = tf.reshape(dir2, [self.batch_size,2])
         #first value contains vel, second yaw_rate, multiply by 100 & 20 for tanh -1,1 range extension
