@@ -12,7 +12,7 @@ import scipy.misc as sm
 import numpy as np
 import scipy.io as sio
 
-from move_network_distributed_noGPU import MCNET
+from move_network_distributed import MCNET
 from utils import *
 import os
 from os import listdir, makedirs, system
@@ -273,14 +273,21 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
                             model.loss_occlusion_mask = (tf.tile(seq_batch[:, :, :, :, -1:], [1, 1, 1, 1, model.c_dim]) + 1) / 2.0
                             model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
                             model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
-
-                            model.speedyaw = tf.reshape(speedyaw,[batch_size*(K+T)*sequence_steps,2])
-                            model.speedyaw_pred = tf.reshape(speedyaw_pred,[batch_size*(K+T)*sequence_steps,2])
-                            model.transformation_error = tf.reduce_mean(tf.squared_difference(transformation_batch, tf.transpose(trans_pred,[1,0,2,3])))
+                            
+                            model.dir_pred = tf.transpose(dir_pred,[1,0,2])
+                            model.dir_gt = direction
+                            
+                            model.tmat_gt = transformation_batch
+                            model.tmat_pred = tf.transpose(trans_pred,[1,0,2,3])
+                            
+                            model.speedyaw = speedyaw
+                            model.speedyaw_pred = tf.transpose(speedyaw_pred,[1,0,2])
+                            # using speedyaw error instead of transformation matrix error
+                            #model.transformation_error = tf.reduce_mean(tf.squared_difference(transformation_batch, tf.transpose(trans_pred,[1,0,2,3])))
                             model.speedyaw_error = tf.reduce_mean(tf.squared_difference(model.speedyaw,model.speedyaw_pred))
                             model.direction_error = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf.transpose(dir_pred,[1,0,2]),labels=direction))
-                            model.odometry_error = model.direction_error + model.transformation_error + model.speedyaw_error
-
+                            model.odometry_error = model.direction_error + model.speedyaw_error
+                            
                             model.rgb = rgb_cam
                             model.seg = seg_cam
                             model.dep = dep_cam
@@ -502,10 +509,22 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
 
                 # every img_save_freq save training sample and model
                 if np.mod(counter, img_save_freq) == 1:
-                    samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred, sy, sy_pred = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask, model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred, model.speedyaw, model.speedyaw_pred])
+                    samples, samples_trans, samples_pre_trans, target_occ, motion_maps, occ_map, rgb, seg, dep, rgb_pred, seg_pred, dep_pred, sy, sy_pred, d_gt, d_pred, tmat_gt, tmat_pred = sess.run([model.G, model.G_trans, model.G_before_trans, model.target, model.motion_map_tensor, model.loss_occlusion_mask, model.rgb, model.seg, model.dep, model.rgb_pred, model.seg_pred, model.dep_pred, model.speedyaw, model.speedyaw_pred, model.dir_gt, model.dir_pred, model.tmat_gt, model.tmat_pred])
 
-                    txtname = samples_dir + "speedyaw_" + str(counter+prevNr).zfill(7) + ".txt"
-                    np.savetxt(txtname, np.concatenate([sy, sy_pred],axis=1))
+                    # dimensions are [batch_size, (K+T)*seq, 2]
+                    txtsy = samples_dir + "speedyaw_" + str(counter+prevNr).zfill(7) + ".txt"
+                    np.savetxt(txtsy, np.concatenate([sy[0], sy_pred[0]],axis=1))
+                    
+                    txttm = samples_dir + "transmat_" + str(counter+prevNr).zfill(7) + ".txt"
+                    # transformation matrix dimensions are [batch_size, (K+T)*seq, 3, 8],
+                    tmConcat = np.concatenate([np.reshape(tmat_gt[0],[tmat_gt.shape[1], 3*8]), np.reshape(tmat_pred[0],[tmat_gt.shape[1], 3*8])],axis=1)
+                    # reshape makes [(K+T)*seq, 24*2] to [2*(K+T)*seq, 24], 1. line is gt, 2. prediction
+                    np.savetxt(txttm, np.reshape(tmConcat,[2*tmat_gt.shape[1],3*8]))
+                    
+                    txtd = samples_dir + "direction_" + str(counter+prevNr).zfill(7) + ".txt"
+                    # direction vector dimensions are [batch_size, (K+T)*seq, 2]
+                    np.savetxt(txtd, np.concatenate([d_gt[0], d_pred[0]],axis=1))
+                    
                     curr_frame = []
                     for seq_step in range(T):
                         curr_frame.append(np.concatenate([rgb[0,K+seq_step,:,:,:],rgb_pred[0,K+seq_step,:,:,:],
