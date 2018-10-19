@@ -6,12 +6,18 @@ Follow the instructions for [Windows](https://carla.readthedocs.io/en/latest/how
 
 Using the Unreal Editor build a standalone version of the client. When starting the standalone version we used the following arguments:
 
+  - map: Which town map to load. Default is set to Town01, use path /Game/Maps
   - windowed: Fullscreen or windowed mode
   - resX: Resolution on X-axis
   - resY: Resolution on Y-axis
   - carla-server: Scripts do not work without the simulator running in server mode.
   - fps: Simulation speed, for our work we set it to 10.
   - carla-settings: Takes the path to the `CarlaSettings.ini` file.
+
+Example for Windows to run on Town02:
+```
+<carla location>/Unreal/CarlaUE4/Binaries/Win64/WindowsNoEditor/CarlaUE4.exe /Game/Maps/Town02 -windowed -resX=800 -resY=600 -carla-server -fps=10 --carla-settings="CarlaSettings.ini"
+```
 
 ## CARLA scripts
 Copy the python scripts to the subdirectory:
