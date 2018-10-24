@@ -34,7 +34,7 @@ Execute the scripts while the CARLA server is running. Make sure that the port s
   - preprocessing_situ_all_data: Helper script for `gather_data_situ.py`. Converts all data (RGB/depth/segmentation/grid map).
   - DQNcarCarla.py: Deep-Q Network RL test for Carla, taken from AirSim Simulator and adapted for CARLA. The [cntk](https://docs.microsoft.com/en-us/cognitive-toolkit/Setup-CNTK-on-your-machine) package is needed to run this script.
   - carla_intersection_locations: Text file containing values extracted from `town_positions` with `view_start_positions.py` that can be used as starting positions for the car. The simulation will then start with the vehicle driving towards a random intersection.
-  - **real time eval**: Folder containing scripts to run real-time evaluation. Run `carla_eval_realtime.py`, uses `tf_carla_eval.py` and `preprocessing_situ_all_data.py` to preprocess data. Creates window showing next 10 predicted frames in real-time while running Carla. Note: Before running this change line 22 in `tf_carla_eval.py` to reflect the current location. We use the `tkinter` package to produce the output window containing the predictions.
+  - **real time eval**: Folder containing scripts to run real-time evaluation.
 
 ### Important arguments for data gathering scripts
   - autopilot: We want the vehicle to be autopiloted while gathering data.
