@@ -119,7 +119,7 @@ class MCNET(object):
                 #gridmap part, use previous prediction for next prediction
                 motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map], axis=3)
                 # comment this line to use last gt transformation matrix
-                #transform_matrix = trans_pred[-1]
+                transform_matrix = trans_pred[-1]
                 h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
                 h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
                 decoded_output = self.dec_cnn(h_motion, res_m, reuse=reuse)
