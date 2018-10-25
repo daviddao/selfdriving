@@ -119,7 +119,8 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
                 model.rgb_pred = tf.stack(rgb_pred,1)
                 model.seg_pred = tf.stack(seg_pred,1)
                 model.dep_pred = tf.stack(dep_pred,1)
-                model.speedyaw = sy_pred
+                model.speedyaw_pred = sy_pred
+                model.dir_pred = dir_pred
 
                 tf.get_variable_scope().reuse_variables()
 
@@ -147,6 +148,7 @@ def init(checkpoint_dir_loc, prefix, image_size_i=96, data_w_i=240, data_h_i=80,
                 print(ckpt.model_checkpoint_path)
             return
 
+# standard eval call, displays predicted grid map and images
 def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
     # preprocess input
     ppTime = time.time()
@@ -154,7 +156,7 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
     ppTime = time.time() - ppTime
     if ready:
         evTime = time.time()
-        samples, rgb_pred, seg_pred, dep_pred, tfmat, speedyawrate = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred, model.trans_pred, model.speedyaw],
+        samples, rgb_pred, seg_pred, dep_pred, tfmat, speedyawrate, dir_pred = sess.run([model.G, model.rgb_pred, model.seg_pred, model.dep_pred, model.trans_pred, model.speedyaw_pred, model.dir_pred],
                                                          feed_dict={model.input_batch: gridmap,
                                                                     model.map_batch: gm_map,
                                                                     model.transformation_batch: trans_matrix,
@@ -162,7 +164,6 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
                                                                     model.seg_cam: seg,
                                                                     model.dep_cam: dep,
                                                                     model.direction: dir_vehicle})
-
 
         evTime = time.time() - evTime
         imTime = time.time()
@@ -194,9 +195,31 @@ def eval(input_gridmap, rgb, dep, seg, yaw_rate, speed):
         canvas.create_image(0, 0, image=image1, anchor="nw")
         canvas.update()
         tkTime = time.time() - tkTime
-        return ppTime, evTime, imTime, tkTime, speedyawrate
+        return ppTime, evTime, imTime, tkTime, speedyawrate, dir_pred, True, npImg
 
-    return ppTime, 0, 0, 0, np.nan
+    return ppTime, 0, 0, 0, np.nan, np.nan, False, -1
+
+# eval call that only returns predicted odometry without displaying predictions
+def eval_only_drive(input_gridmap, rgb, dep, seg, yaw_rate, speed):
+    # preprocess input
+    ppTime = time.time()
+    ready, gridmap, gm_map, trans_matrix, rgb, seg, dep, dir_vehicle = preprocessing(input_gridmap, rgb, dep, seg, yaw_rate, speed)
+    ppTime = time.time() - ppTime
+    if ready:
+        evTime = time.time()
+        tfmat, speedyawrate, dir_pred = sess.run([model.trans_pred, model.speedyaw_pred, model.dir_pred],
+                                                         feed_dict={model.input_batch: gridmap,
+                                                                    model.map_batch: gm_map,
+                                                                    model.transformation_batch: trans_matrix,
+                                                                    model.rgb_cam: rgb,
+                                                                    model.seg_cam: seg,
+                                                                    model.dep_cam: dep,
+                                                                    model.direction: dir_vehicle})
+
+        evTime = time.time() - evTime
+        return ppTime, evTime, 0, 0, speedyawrate, dir_pred
+
+    return ppTime, 0, 0, 0, np.nan, np.nan
 
 #following functions are from the preprocessing script
 def create_default_element(image_size, seq_length, channel_size):
