@@ -1,2 +1,6 @@
 **/*.swp
 **/*.pyc
+**/*.meta
+**/*.index
+**/checkpoint
+**/*.data-00000-of-00001
