@@ -22,7 +22,7 @@ from PIL import Image
 from PIL import ImageDraw
 
 def main(data_path, tfrecord, prefix, image_size, data_w, data_h, K, T, useGAN, useSharpen, num_gpu, include_road, num_iters,
-seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=20, predOcclValue=-1, beta=0, batch_size=1, cutout_input=0):
+seq_steps, useDenseBlock, samples, checkpoint_dir_loc, d_input_frames=20, predOcclValue=-1, beta=0, batch_size=1, cutout_input=0):
 
     gpu = np.arange(num_gpu)
     #need at least 1 gpu to run code
@@ -80,7 +80,7 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
         seg_cam = seg_cam[:(K+T)*seq_steps,:,:,:]
         dep_cam = tf.expand_dims(dep_cam[:(K+T)*seq_steps,:,:],-1)
         direction = direction[:(K+T)*seq_steps,:]
-        
+
         if cutout_input == 1:
             zero = tf.zeros(target_seq.shape)
             target_seq = tf.concat([zero[:,:,:K,:], target_seq[:,:,K:,:]], 2)
@@ -126,7 +126,7 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
                   useGAN=(beta != 0),
                   useSharpen=useSharpen,
                   useDenseBlock=useDenseBlock,
-                  samples=samples, sy_loss=sy_loss)
+                  samples=samples)
 
     # Setup model and iterator
     model.pred_occlusion_map = tf.ones(model.occlusion_shape, dtype=tf.float32, name='Pred_Occlusion_Map') * model.predOcclValue
@@ -147,8 +147,8 @@ seq_steps, useDenseBlock, samples, checkpoint_dir_loc, sy_loss, d_input_frames=2
             model.target_masked = model.mask_black(seq_batch[:, :, :, :, :model.c_dim], model.loss_occlusion_mask)
             model.G_masked = model.mask_black(model.G, model.loss_occlusion_mask)
 
-            model.sy = tf.reshape(speedyaw,[batch_size*(K+T)*seq_steps,2])
-            model.sy_pred = tf.reshape(speedyaw_pred,[batch_size*(K+T)*seq_steps,2])
+            model.sy = speedyaw
+            model.sy_pred = tf.transpose(speedyaw_pred,[1,0,2])
             model.rgb = rgb_cam
             model.seg = seg_cam
             model.dep = dep_cam
@@ -389,7 +389,7 @@ def str2bool(v):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--prefix", type=str, dest="prefix",
-                        default="pure-sy_onlyCARLA_onmove_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
+                        default="64k_image_size=96_K=9_T=10_seqsteps=1_batch_size=4_alpha=1.001_beta=0.0_lr_G=0.0001_lr_D=0.0001_d_in=20_selu=True_comb=False_predV=-1", help="Prefix for log/snapshot")
     parser.add_argument("--image_size", type=int, dest="image_size",
                         default=96, help="Pre-trained model")
     parser.add_argument("--K", type=int, dest="K",
@@ -422,8 +422,6 @@ if __name__ == "__main__":
                         default=240, help="rgb/seg/depth image width size")
     parser.add_argument("--data_h", type=int, dest="data_h",
                         default=80, help="rgb/seg/depth image width size")
-    parser.add_argument("--speed-yaw-loss", type=str2bool, dest="sy_loss",
-                        default=True, help="Add additional layer in network to compute speed yaw output?")
     parser.add_argument("--cutout-input", type=int, dest="cutout_input",
                         default=0, help="Remove channel from evaluation: 0 all input remains, 1 remove grid map, 2 remove RGB, 3 remove segmentation, 4 remove depth.")
 

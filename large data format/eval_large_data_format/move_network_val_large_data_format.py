@@ -21,7 +21,7 @@ class MCNET(object):
                  iterations=1, d_input_frames=20, useSELU=False,
                  motion_map_dims=2, showFutureMaps=True,
                  predOcclValue=-1, useSmallSharpener=False,
-                 useGAN=False, useSharpen=False, useDenseBlock=True, samples=1, sy_loss=False):
+                 useGAN=False, useSharpen=False, useDenseBlock=True, samples=1):
 
         self.samples = samples
         self.batch_size = batch_size
@@ -33,7 +33,9 @@ class MCNET(object):
         self.maps_offset = 1 if showFutureMaps else 0
         self.predOcclValue = predOcclValue
         self.small_sharpener = useSmallSharpener
-        self.sy_loss = sy_loss
+
+        self.frame_rate = 24
+        self.gridmap_size = 45.6
 
         self.useGAN = useGAN
         self.useSharpen = useSharpen
@@ -101,11 +103,11 @@ class MCNET(object):
                 # image channels
                 with tf.variable_scope("CAM", reuse=reuse):
                     cell, res = self.conv_data(rgb_cam[:,timestep], seg_cam[:,timestep], dep_cam[:,timestep], direction[:, timestep], motion_enc_input, transform_matrix, reuse)
-                    p_rgb, p_seg, p_dep, _, p_trans, p_dir, p_sy = self.deconv_data(cell, res, reuse)
+                    p_rgb, p_seg, p_dep, _, p_dir, p_sy = self.deconv_data(cell, res, reuse)
                     rgb_pred.append(p_rgb)
                     seg_pred.append(p_seg)
                     dep_pred.append(p_dep)
-                    trans_pred.append(p_trans)
+                    trans_pred.append(tf.stack([self.transMat(p_sy[i]) for i in range(self.batch_size)]))
                     dir_pred.append(p_dir)
                     speedyaw_pred.append(p_sy)
                 reuse = True
@@ -116,6 +118,7 @@ class MCNET(object):
 
                 #gridmap part, use previous prediction for next prediction
                 motion_enc_input = tf.concat([self.keep_alive(pred[-1]), self.pred_occlusion_map], axis=3)
+                # comment this line to use last gt transformation matrix
                 #transform_matrix = trans_pred[-1]
                 h_motion, res_m = self.motion_enc(motion_enc_input, reuse=reuse)
                 h_motion, posterior = self.dense_block(h_motion, reuse=reuse)
@@ -130,11 +133,11 @@ class MCNET(object):
                 # image channels, reuse previous prediction
                 with tf.variable_scope("CAM", reuse=reuse):
                     cell, res = self.conv_data(rgb_pred[-1], seg_pred[-1], dep_pred[-1], dir_pred[-1], motion_enc_input, transform_matrix, reuse)
-                    p_rgb, p_seg, p_dep, _, p_trans, p_dir, p_sy = self.deconv_data(cell, res, reuse)
+                    p_rgb, p_seg, p_dep, _, p_dir, p_sy = self.deconv_data(cell, res, reuse)
                     rgb_pred.append(p_rgb)
                     seg_pred.append(p_seg)
                     dep_pred.append(p_dep)
-                    trans_pred.append(p_trans)
+                    trans_pred.append(tf.stack([self.transMat(p_sy[i]) for i in range(self.batch_size)]))
                     dir_pred.append(p_dir)
                     speedyaw_pred.append(p_sy)
 
@@ -277,16 +280,16 @@ class MCNET(object):
         transformation_deconv1 = tf.layers.flatten(deconv1[:,:,:,-2])
         direction_deconv1 = tf.layers.flatten(deconv1[:,:,:,-1])
         tl1 = tf.layers.dense(transformation_deconv1, self.gf_dim//2, tf.nn.selu)
-        tl2 = tf.layers.dense(tl1, 1*3*8, tf.nn.selu)
+        tl1_dropout = tf.layers.dropout(tl1,0.5)
+        tl2 = tf.layers.dense(tl1_dropout, self.gf_dim//4, tf.nn.selu)
+        tl3 = tf.layers.dense(tl2, self.gf_dim//8, tf.nn.selu)
+
         dir1 = tf.layers.dense(direction_deconv1, self.gf_dim//2, tf.nn.selu)
         dir2 = tf.layers.dense(dir1, 1*2, tf.nn.sigmoid)
-        tl_out = tf.reshape(tl2, [self.batch_size*1,3,8])
         dir_out = tf.reshape(dir2, [self.batch_size,2])
+
         #first value contains vel, second yaw_rate, multiply by 100 & 20 for tanh -1,1 range extension
-        if self.sy_loss:
-            sy_out = tf.concat([tf.layers.dense(tl2, 1, tf.nn.tanh)*100, tf.layers.dense(tl2, 1, tf.nn.tanh)*20], axis=1)
-        else:
-            sy_out = tf.zeros([2])
+        sy_out = tf.concat([tf.layers.dense(tl3, 1, tf.nn.tanh)*100, tf.layers.dense(tl3, 1, tf.nn.tanh)*20], axis=1)
 
         # second deconv stage
         out_shape2 = [self.batch_size, self.data_size[0] // 4, self.data_size[1] // 4, self.gf_dim]
@@ -364,7 +367,7 @@ class MCNET(object):
         deconv_seg_5 = tanh(deconv2d(deconv_seg_4, output_shape=out_shape_seg_4, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_seg_5', reuse=reuse))
         deconv_dep_5 = tanh(deconv2d(deconv_dep_4, output_shape=out_shape_dep_4, k_h=3, k_w=3, d_h=1, d_w=1, name='deconv_dep_5', reuse=reuse))
 
-        return deconv_rgb_5, deconv_seg_5, deconv_dep_5, latent, tl_out, dir_out, sy_out
+        return deconv_rgb_5, deconv_seg_5, deconv_dep_5, latent, dir_out, sy_out
 
     # encoder stage of grid map model
     def motion_enc(self, motion_in, reuse):
@@ -569,3 +572,29 @@ class MCNET(object):
             cross_entropy_mean = tf.reduce_mean(
                 cross_entropy, name="cross_entropy")
             return cross_entropy_mean
+
+    # from https://stackoverflow.com/questions/48707974/deg2rad-conversion-in-tensorflow
+    def tf_deg2rad(self, deg):
+        pi_on_180 = 0.017453292519943295
+        return deg * pi_on_180
+
+    # from preprocessing script
+    def transMat(self, speedyawrate):
+        period_duration = 1.0 / self.frame_rate
+        yaw_diff = self.tf_deg2rad(speedyawrate[1] * period_duration)
+        tMat = []
+        for i in range(3): # shape has to be [3,8]
+            imgsize = self.image_size[0] // (2 ** i)
+            pixel_size = self.gridmap_size * 1.0 / imgsize # [m]
+            pixel_diff = speedyawrate[0] * period_duration * 1.0 / pixel_size
+            dx = tf.cos(yaw_diff) * pixel_diff
+            dy = tf.sin(yaw_diff) * pixel_diff
+            theta = -yaw_diff
+            a11 = tf.cos(theta)
+            a12 = -tf.sin(theta)
+            a13 = dx / ((imgsize - 1) / 2.0)
+            a21 = tf.sin(theta)
+            a22 = tf.cos(theta)
+            a23 = dy / ((imgsize - 1) / 2.0)
+            tMat.append([a11, a12, a13, a21, a22, a23, 0, 0])
+        return tf.stack(tMat)

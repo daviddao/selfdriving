@@ -38,9 +38,9 @@ class MCNET(object):
         self.useGAN = useGAN
         self.useSharpen = useSharpen
 
-        self.frame_rate = 24        
+        self.frame_rate = 24
         self.gridmap_size = 45.6
-        
+
         self.gf_dim = 32
         self.df_dim = 64
 
@@ -276,19 +276,19 @@ class MCNET(object):
         rgb_deconv1 = deconv1[:,:,:,:self.df_dim]
         seg_deconv1 = deconv1[:,:,:,self.df_dim:self.df_dim+self.gf_dim]
         dep_deconv1 = deconv1[:,:,:,self.df_dim+self.gf_dim:-3]
-        #new version speed, yaw rate and direction, removed transformation matrix prediction
         
+        #new version speed, yaw rate and direction, removed transformation matrix prediction
         transformation_deconv1 = tf.layers.flatten(deconv1[:,:,:,-2])
         direction_deconv1 = tf.layers.flatten(deconv1[:,:,:,-1])
         tl1 = tf.layers.dense(transformation_deconv1, self.gf_dim//2, tf.nn.selu)
         tl1_dropout = tf.layers.dropout(tl1,0.5)
         tl2 = tf.layers.dense(tl1_dropout, self.gf_dim//4, tf.nn.selu)
         tl3 = tf.layers.dense(tl2, self.gf_dim//8, tf.nn.selu)
-        
+
         dir1 = tf.layers.dense(direction_deconv1, self.gf_dim//2, tf.nn.selu)
         dir2 = tf.layers.dense(dir1, 1*2, tf.nn.sigmoid)
         dir_out = tf.reshape(dir2, [self.batch_size,2])
-        
+
         #first value contains vel, second yaw_rate, multiply by 100 & 20 for tanh -1,1 range extension
         sy_out = tf.concat([tf.layers.dense(tl3, 1, tf.nn.tanh)*100, tf.layers.dense(tl3, 1, tf.nn.tanh)*20], axis=1)
 
