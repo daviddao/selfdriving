@@ -1,5 +1,5 @@
 # Evaluation documentation
-A short documentation for network evaluation. Two compressed TFRecords are included in the `/tfrecords` subdirectory. They need to be decompressed before use. A zipped model checkpoint is given in `/model` and can be used to run this code out of the box. For more model checkpoint files and datasets see `/mnt/ds3lab-scratch/lucala`.
+A short documentation for network evaluation. Three compressed TFRecords are included in the `/tfrecords` subdirectory. They need to be decompressed before use. A zipped model checkpoint is given in `/model` and can be used to run this code out of the box. Four checkpoints of the same model are included: 8000, 24000, 57000 and 64000 training iterations. For more model checkpoint files and datasets see `/mnt/ds3lab-scratch/lucala`.
 
 ## Running evaluation scripts
 Start by unzipping the model stored in `/model` and the TFRecords stored in `/tfrecords`.
