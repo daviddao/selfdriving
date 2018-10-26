@@ -15,7 +15,7 @@ Important arguments that can be passed to the script are:
   - CUDA_VISIBLE_DEVICES: Needed for the system to be able to observe the GPUs. Tensorflow will allocate resources to all visible GPUs even if they are not used with the `--gpu` flag.
   - gpu: Array of GPUs to use. Cannot be larger than `CUDA_VISIBLE_DEVICES` and has to start at 0.
   - prefix: String prepended to the model.
-  - denseBlock: Train using the dense block (network of diluted convolutions) or VAE.
+  - denseBlock: Train using the dense block (network of dilated convolutions) or VAE.
   - num-iter: Number of iterations to train.
   - img-freq: Iteration interval between saving model and image output.
   - data-path-scratch: Location where TFRecords are stored.

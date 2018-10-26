@@ -15,6 +15,7 @@ All code is written in Python 3 (v3.6.5). Python packages used are:
   - matplotlib 2.2.2
   - cudnn 7.1.4
   - cudatoolkit 9.0
+  - ffmpeg 4.0.2
 
 ## Data
 Datasets for the project are:

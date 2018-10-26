@@ -35,7 +35,7 @@ def main(lr_D, lr_G, batch_size, alpha, beta, image_size, data_w, data_h, K,
     tfRecordFolder = False
     if tfrecordname == "":
         tfRecordFolder = True
-        tfrecordname = glob.glob(data_path_scratch+'*.tfrecord')[0].split('/')[-1].split('.')[0]
+        tfrecordname = glob.glob(data_path_scratch+'/*.tfrecord')[0].split('/')[-1].split('.')[0]
         print("Info: No TFRecord name provided. Using random TFRecord name in directory to parse info: " + tfrecordname)
 
     margin = 0.3
