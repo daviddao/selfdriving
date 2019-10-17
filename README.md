@@ -1,4 +1,7 @@
 # Documentation
+
+[![](https://tinyurl.com/greenai-pledge)](https://github.com/daviddao/green-ai)
+
 A short documentation of dependencies, files and structure of the code for the master thesis "Deep Visual Foresight for Self-driving Cars". Additional documentation can be found in READMEs of subfolders and specific code files.
 
 ## Dependencies
